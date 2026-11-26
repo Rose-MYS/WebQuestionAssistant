@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pending</title><link rel="stylesheet" href="styles.css"></head>
+<body class="results">
+  <main>
+    <p id="test-result" role="status">正在运行裁切编辑器测试…</p>
+    <header class="results-heading"><div><h1>Test</h1><p id="result-status"></p></div><div class="results-actions">
+      <button id="open-settings"></button><button id="cancel-questions" hidden></button><button id="retry-answer" hidden></button>
+    </div></header>
+    <section id="questions-section" class="questions-section" hidden>
+      <h2 id="questions-title"></h2><p id="confirmation-hint" hidden></p>
+      <section id="crop-editor-panel" class="crop-editor-panel" hidden>
+        <div class="crop-editor-heading"><div><h3>Edit</h3><p class="hint">Drag</p></div><button id="add-question-mode"></button></div>
+        <p id="crop-editor-mode" hidden></p>
+        <div id="crop-editor-viewport" class="crop-editor-viewport"><div id="crop-editor-stage" class="crop-editor-stage">
+          <img id="crop-editor-image"><div id="crop-editor-overlay" class="crop-editor-overlay"></div>
+        </div></div>
+      </section>
+      <div id="questions-list"></div>
+      <div class="button-row question-actions"><button id="recognize-again" hidden></button><button id="confirm-questions" hidden>Confirm</button></div>
+    </section>
+    <section id="latex-render-tests"></section>
+    <footer class="ai-disclaimer">解答由AI生成，请注意甄别。</footer>
+  </main>
+  <script>
+    const source = document.createElement("canvas");
+    source.width = 100;
+    source.height = 100;
+    const context = source.getContext("2d");
+    context.fillStyle = "white";
+    context.fillRect(0, 0, 100, 100);
+    context.fillStyle = "red";
+    context.fillRect(10, 10, 35, 35);
+    context.fillStyle = "blue";
+    context.fillRect(55, 55, 35, 35);
+    context.fillStyle = "green";
+    context.fillRect(0, 0, 20, 20);
+    window.testRecord = {
+      id: "crop-test", status: "captured", imageData: source.toDataURL("image/png"),
+      width: 100, height: 100, tiles: 2, instruction: "", questions: []
+    };
+    window.apiCalls = [];
+    window.mockReplies = [
+      JSON.stringify({ questions: [
+        { number: "2", bbox: [550, 550, 900, 900] },
+        { number: "1", bbox: [100, 100, 450, 450] },
+        { number: "3", bbox: [0, 0, 200, 200] }
+      ] }),
+      "$x^2$", "答案三", "新增题答案"
+    ];
+    window.chrome = {
+      storage: { local: { get: async () => ({
+        endpoint: "https://api.example.test/chat/completions",
+        model: "vision-model", apiKey: "test-key"
+      }) } },
+      permissions: { contains: async () => true, request: async () => true },
+      runtime: { openOptionsPage() {} }
+    };
+    window.ResultStore = {
+      async get() { return structuredClone(window.testRecord); },
+      async update(id, changes) {
+        if (id !== window.testRecord.id) throw new Error("wrong result id");
+        Object.assign(window.testRecord, structuredClone(changes));
+      }
+    };
+    window.fetch = async (url, options) => {
+      window.apiCalls.push(JSON.parse(options.body));
+      const answer = window.mockReplies.shift();
+      if (typeof answer !== "string") throw new Error("unexpected API call");
+      return {
+        ok: true, status: 200, headers: { get() { return null; } },
+        async json() { return { choices: [{ message: { content: answer } }] }; }
+      };
+    };
+  </script>
+  <script src="answer-renderer.js"></script>
+  <script src="results.js?id=crop-test"></script>
+  <script>
+    async function waitFor(test, label) {
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        if (test()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`Timed out: ${label}`);
+    }
+
+    function question(number) {
+      return window.testRecord.questions.find((item) => item.number === String(number));
+    }
+
+    function clientPoint(x, y) {
+      const rect = document.getElementById("crop-editor-stage").getBoundingClientRect();
+      return {
+        x: rect.left + x * rect.width / window.testRecord.width,
+        y: rect.top + y * rect.height / window.testRecord.height
+      };
+    }
+
+    function pointer(target, type, point, pointerId) {
+      target.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId, pointerType: "touch", button: 0,
+        clientX: point.x, clientY: point.y
+      }));
+    }
+
+    async function sampleCenter(dataUrl) {
+      const image = new Image();
+      image.src = dataUrl;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0);
+      return [...ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+    }
+
+    (async () => {
+      await waitFor(() => window.testRecord.status === "awaiting_confirmation" &&
+        !document.getElementById("add-question-mode").disabled, "segmentation review");
+      await document.getElementById("crop-editor-image").decode();
+      if (window.apiCalls.length !== 1) throw new Error("solve API called before confirmation");
+      if (window.testRecord.questions.map((item) => item.number).join(",") !== "1,2,3") {
+        throw new Error("initial question boxes were not ordered");
+      }
+      const initialQ1 = { ...question(1).crop };
+      document.querySelector('.question-card[data-question-id="q1"]').click();
+      let box = [...document.querySelectorAll(".crop-edit-box")]
+        .find((item) => item.dataset.questionId === "q1");
+      let center = clientPoint(initialQ1.x + initialQ1.width / 2, initialQ1.y + initialQ1.height / 2);
+      pointer(box, "pointerdown", center, 7);
+      pointer(document.getElementById("crop-editor-overlay"), "pointermove",
+        clientPoint(initialQ1.x + initialQ1.width / 2 + 8, initialQ1.y + initialQ1.height / 2 + 5), 7);
+      pointer(document.getElementById("crop-editor-overlay"), "pointerup",
+        clientPoint(initialQ1.x + initialQ1.width / 2 + 8, initialQ1.y + initialQ1.height / 2 + 5), 7);
+      await waitFor(() => question(1).crop.x >= initialQ1.x + 7, "crop move");
+      const movedQ1 = { ...question(1).crop };
+      if (movedQ1.y < initialQ1.y + 4) throw new Error("crop did not move vertically");
+
+      box = [...document.querySelectorAll(".crop-edit-box")]
+        .find((item) => item.dataset.questionId === "q1");
+      const eastHandle = box.querySelector('[data-handle="e"]');
+      const edgePoint = clientPoint(movedQ1.x + movedQ1.width, movedQ1.y + movedQ1.height / 2);
+      pointer(eastHandle, "pointerdown", edgePoint, 8);
+      pointer(document.getElementById("crop-editor-overlay"), "pointermove",
+        clientPoint(movedQ1.x + movedQ1.width + 12, movedQ1.y + movedQ1.height / 2), 8);
+      pointer(document.getElementById("crop-editor-overlay"), "pointerup",
+        clientPoint(movedQ1.x + movedQ1.width + 12, movedQ1.y + movedQ1.height / 2), 8);
+      await waitFor(() => question(1).crop.width >= movedQ1.width + 10, "crop resize");
+      if (question(1).crop.x < 0 || question(1).crop.y < 0 ||
+          question(1).crop.x + question(1).crop.width > 100) {
+        throw new Error("resized crop escaped the image bounds");
+      }
+      const editedPixel = await sampleCenter(question(1).imageData);
+      if (!(editedPixel[0] > editedPixel[1] * 1.8 && editedPixel[0] > editedPixel[2] * 1.8)) {
+        throw new Error(`edited crop preview does not match final source pixels: ${editedPixel}`);
+      }
+      box = [...document.querySelectorAll(".crop-edit-box")]
+        .find((item) => item.dataset.questionId === "q1");
+      const southEastHandle = box.querySelector('[data-handle="se"]');
+      const editedBounds = { ...question(1).crop };
+      pointer(southEastHandle, "pointerdown",
+        clientPoint(editedBounds.x + editedBounds.width, editedBounds.y + editedBounds.height), 10);
+      pointer(document.getElementById("crop-editor-overlay"), "pointermove",
+        clientPoint(150, 150), 10);
+      pointer(document.getElementById("crop-editor-overlay"), "pointerup",
+        clientPoint(150, 150), 10);
+      await waitFor(() => question(1).crop.x + question(1).crop.width === 100 &&
+        question(1).crop.y + question(1).crop.height === 100, "crop boundary clamp");
+
+      document.getElementById("add-question-mode").click();
+      const start = clientPoint(5, 60);
+      const end = clientPoint(40, 95);
+      const overlay = document.getElementById("crop-editor-overlay");
+      pointer(overlay, "pointerdown", start, 9);
+      pointer(overlay, "pointermove", end, 9);
+      pointer(overlay, "pointerup", end, 9);
+      await waitFor(() => window.testRecord.questions.length === 4, "manual question addition");
+      const added = question(4);
+      if (!added || Math.abs(added.crop.x - 5) > 2 || Math.abs(added.crop.y - 60) > 2 ||
+          Math.abs(added.crop.width - 35) > 2 || Math.abs(added.crop.height - 35) > 2) {
+        throw new Error(`manual box coordinate mapping failed: ${JSON.stringify(added?.crop)}`);
+      }
+      const addedPixel = await sampleCenter(added.imageData);
+      if (!(addedPixel[0] > 180 && addedPixel[1] > 180 && addedPixel[2] > 180)) {
+        throw new Error(`manual crop did not capture the selected white region: ${addedPixel}`);
+      }
+
+      document.querySelector('.question-card[data-question-id="q2"] .remove-question').click();
+      await waitFor(() => !window.testRecord.questions.some((item) => item.id === "q2"), "question deletion");
+      if (window.apiCalls.length !== 1) throw new Error("a crop was uploaded before final confirmation");
+      const finalQuestions = structuredClone(window.testRecord.questions);
+      if (finalQuestions.map((item) => item.number).join(",") !== "1,3,4") {
+        throw new Error("edited question numbers/order changed unexpectedly");
+      }
+      document.getElementById("confirm-questions").click();
+      await waitFor(() => window.testRecord.status === "complete", "confirmed sequential answers");
+      if (window.apiCalls.length !== 4) throw new Error("expected segmentation plus three final crop calls");
+      for (let index = 0; index < finalQuestions.length; index += 1) {
+        const parts = window.apiCalls[index + 1].messages[0].content;
+        const imagePart = parts.find((part) => part.type === "image_url");
+        if (imagePart?.image_url?.url !== finalQuestions[index].imageData) {
+          throw new Error(`final crop upload ${index + 1} did not match edited question order`);
+        }
+      }
+      const cards = [...document.querySelectorAll(".question-card")];
+      if (cards.map((card) => card.querySelector("h3").textContent).join("|") !==
+          "第 1 题|第 3 题|第 4 题" ||
+          cards.some((card) => !card.querySelector(".answer-content"))) {
+        throw new Error("final answers were not bound to the retained numbered crop cards");
+      }
+      if (document.querySelector(".results-image, #result-image")) {
+        throw new Error("full-page screenshot is displayed in the final results interface");
+      }
+      if (document.querySelector(".ai-disclaimer")?.textContent !== "解答由AI生成，请注意甄别。") {
+        throw new Error("AI-generated answer disclaimer is missing at the end of the page");
+      }
+      if (!document.querySelector("main").lastElementChild.classList.contains("ai-disclaimer")) {
+        throw new Error("AI-generated answer disclaimer is not the final page element");
+      }
+
+      const mathTests = document.getElementById("latex-render-tests");
+      AnswerRenderer.render(mathTests, [
+        "inline \\(\\boxed{x=2}\\)",
+        "",
+        "$$",
+        "\\boxed{\\frac{1}{\\boxed{2}}}",
+        "$$"
+      ].join("\n"));
+      const inlineMath = mathTests.querySelector("math.math-inline");
+      const displayMath = mathTests.querySelector("math.math-block");
+      if (inlineMath?.querySelector('menclose[notation="box"]')?.textContent !== "x=2") {
+        throw new Error("inline boxed formula did not render as boxed MathML");
+      }
+      const boxes = displayMath?.querySelectorAll('menclose[notation="box"]') || [];
+      if (boxes.length !== 2 ||
+          !displayMath.querySelector("mfrac") ||
+          displayMath.querySelector("menclose menclose")?.textContent !== "2") {
+        throw new Error("display/nested boxed formula structure is incorrect");
+      }
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "crop editing and confirmation gates; results page, AI notice, inline/display/nested boxed MathML";
+      document.title = "PASS";
+      document.getElementById("test-result").textContent = `通过：${document.body.dataset.testDetails}`;
+    })().catch((error) => {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.getElementById("test-result").textContent = `失败：${document.body.dataset.testDetails}`;
+    });
+  </script>
+</body>
+</html>

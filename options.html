@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>网页题目助手设置</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="options">
+    <main>
+      <h1>API 设置</h1>
+      <p class="hint">使用兼容 OpenAI Chat Completions 图像消息格式的服务。API Key 保存在此浏览器的扩展本地存储中。</p>
+      <form id="settings-form">
+        <label for="endpoint">API 地址</label>
+        <input id="endpoint" name="endpoint" type="url" required
+          placeholder="https://api.deepseek.com/chat/completions">
+        <label for="model">视觉模型名称</label>
+        <input id="model" name="model" type="text" required placeholder="填写服务商提供的视觉模型名称">
+        <p class="hint">请确认该服务和模型明确支持图像输入。文本模型不能处理截图；DeepSeek 兼容服务之间的视觉能力可能不同。</p>
+        <label for="api-key">API Key</label>
+        <input id="api-key" name="apiKey" type="password" autocomplete="off"
+          placeholder="输入 API Key；留空则保留已保存的 Key">
+        <div class="button-row">
+          <button class="primary-button" type="submit">保存设置</button>
+          <button id="clear-key" class="secondary-button" type="button">清除 API Key</button>
+        </div>
+      </form>
+      <p id="settings-status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

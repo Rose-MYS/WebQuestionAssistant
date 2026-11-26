@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "网页题目助手",
+  "version": "1.7.0",
+  "description": "手动编辑题目截图并逐题求解，支持 LaTeX 公式。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "action": {
+    "default_title": "网页题目助手",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}
