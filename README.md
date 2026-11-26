@@ -28,13 +28,3 @@ DeepSeek 兼容服务和各模型的视觉能力不同。请确认所选模型�
 确认前不会向 API 发送任何逐题裁切图用于解答；但是识别定位所需的整页截图已在步骤 2 发给该服务。若不希望服务接触页面上的非题目信息，请勿对该页面启动识别。完整长图和裁切图均保存在扩展本地 IndexedDB 结果记录中，不会写入网页网站的数据存储；最近 5 份记录会保留。
 
 扩展不读取网页文字、表单值或隐藏内容；注入页面的脚本仅用于读取尺寸、滚动和恢复位置。只处理当前标签页可见画面。Edge 内部页面、扩展商店等受限页面可能禁止截图或脚本注入；嵌套滚动区域、跨源嵌入内容和动态页面也可能无法完整采集。
-
-## 运行裁切编辑器回归测试
-
-`crop-editor.test.html` 使用合成截图和模拟 API，不会访问外部服务。可在 Windows PowerShell 中用 Edge 打开（将示例路径替换为扩展目录的实际路径）；完成后页面会显示测试结果：
-
-```powershell
-& "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" --allow-file-access-from-files "file:///C:/path/to/edge-question-helper/crop-editor.test.html?id=crop-test"
-```
-
-测试覆盖坐标映射、触屏指针拖动/缩放、边界约束、手动新增与删除题目、裁切预览，以及最终确认前不发送逐题请求、确认后按题号上传、结果页隐私提示及行内/块级/嵌套 `\boxed` 公式 MathML 结构。
