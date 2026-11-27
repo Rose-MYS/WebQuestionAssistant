@@ -12,55 +12,9 @@
         <h1>网页题目助手</h1>
         <button id="open-settings" class="text-button" type="button">设置</button>
       </header>
-      <div id="update-banner" class="update-banner" hidden>
-        <span id="update-text"></span>
-        <div class="update-actions">
-          <button id="update-download" class="text-button" type="button">下载更新</button>
-          <button id="update-dismiss" class="text-button update-dismiss" type="button" aria-label="忽略此版本更新">×</button>
-        </div>
-      </div>
-      <div class="mode-switcher popup-mode-switcher" role="radiogroup" aria-label="截图后默认流程">
-        <label class="mode-option">
-          <input type="radio" name="popup-mode" value="local">
-          <span>本地框选导出（无需 API）</span>
-        </label>
-        <label class="mode-option">
-          <input type="radio" name="popup-mode" value="ai">
-          <span>AI 视觉识别解答</span>
-        </label>
-      </div>
-      <div id="export-format-group" class="format-picker">
-        <span class="format-label">默认下载格式：</span>
-        <label class="format-option">
-          <input id="format-png" type="checkbox" value="png" checked>
-          <span>合并 PNG</span>
-        </label>
-        <label class="format-option">
-          <input id="format-pdf" type="checkbox" value="pdf">
-          <span>A4 PDF</span>
-        </label>
-      </div>
-      <p id="active-profile-hint" class="active-profile-hint" hidden></p>
-      <label class="preview-toggle">
-        <input id="preview-before-open" type="checkbox" checked>
-        <span>不进入预览与微调页（直接自动下载）</span>
-      </label>
-      <div id="instruction-group" hidden>
-        <label for="instruction">补充说明（可选）</label>
-        <textarea id="instruction" rows="2" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
-      </div>
-      <button id="capture-page" class="primary-button" type="button">一键截取并自动下载</button>
-      <button id="cancel-capture" class="secondary-button cancel-button" type="button" hidden>取消长截图</button>
-      <figure id="screenshot-figure" class="screenshot-figure" hidden>
-        <img id="screenshot-preview" alt="当前网页长截图预览">
-        <figcaption>已拼接当前网页可滚动区域；可在预览框内查看长图，或重新截取。</figcaption>
-      </figure>
-      <button id="submit" class="secondary-button" type="button" hidden>打开微调与编辑页</button>
+      <button id="capture-page" class="primary-button capture-primary" type="button">截取网页长图</button>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>
-    <script src="result-store.js"></script>
-    <script src="api-profiles.js"></script>
-    <script src="exporter.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
