@@ -19,19 +19,32 @@
           <button id="update-dismiss" class="text-button update-dismiss" type="button" aria-label="忽略此版本更新">×</button>
         </div>
       </div>
-      <p class="hint">滚动采集当前网页长图，视觉识别并切分出题目截图；你确认后才会逐题上传和求解。</p>
+      <div class="mode-switcher popup-mode-switcher" role="radiogroup" aria-label="截图后默认流程">
+        <label class="mode-option">
+          <input type="radio" name="popup-mode" value="local">
+          <span>本地框选导出（无需 API）</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="popup-mode" value="ai">
+          <span>AI 视觉识别解答</span>
+        </label>
+      </div>
+      <p id="active-profile-hint" class="active-profile-hint" hidden></p>
       <button id="capture-page" class="secondary-button" type="button">截取整页长图</button>
       <button id="cancel-capture" class="secondary-button cancel-button" type="button" hidden>取消长截图</button>
       <figure id="screenshot-figure" class="screenshot-figure" hidden>
         <img id="screenshot-preview" alt="当前网页长截图预览">
         <figcaption>已拼接当前网页可滚动区域；可在预览框内查看长图，或重新截取。</figcaption>
       </figure>
-      <label for="instruction">补充说明（可选）</label>
-      <textarea id="instruction" rows="3" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
-      <button id="submit" class="primary-button" type="button" disabled>识别并切分题目截图</button>
+      <div id="instruction-group">
+        <label for="instruction">补充说明（可选）</label>
+        <textarea id="instruction" rows="3" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
+      </div>
+      <button id="submit" class="primary-button" type="button" disabled>本地自动框选并导出（无需 API）</button>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>
     <script src="result-store.js"></script>
+    <script src="api-profiles.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -21,7 +21,7 @@
       </header>
       <section id="questions-section" class="questions-section" hidden>
         <h2 id="questions-title">识别出的题目截图</h2>
-        <p id="confirmation-hint" class="hint" hidden>检查每道题的裁切图，可拖动区域移动、拖动边缘或角点调整大小；也可删除题目，或在原长图上框选新增题目。只有点击“确认并逐题求解”后，最终选中的裁切图才会发送给解答模型。</p>
+        <p id="confirmation-hint" class="hint" hidden>检查每道题的裁切图，可拖动区域移动、拖动边缘或角点调整大小；也可删除题目，或在原长图上框选新增题目。你可以直接导出合并 PNG / A4 PDF 发给 Gemini 或千问 App（不调用 API），也可以点击“确认并逐题求解”。</p>
         <section id="crop-editor-panel" class="crop-editor-panel" hidden>
           <div class="crop-editor-heading">
             <div>
@@ -39,14 +39,18 @@
           </div>
         </section>
         <div id="questions-list"></div>
-        <div class="button-row question-actions">
-          <button id="recognize-again" class="secondary-button" type="button" hidden>重新识别</button>
+        <div class="button-row question-actions export-actions">
+          <button id="export-png" class="secondary-button" type="button" hidden>导出合并 PNG</button>
+          <button id="export-pdf" class="secondary-button" type="button" hidden>导出 A4 PDF</button>
+          <button id="recognize-again" class="secondary-button" type="button" hidden>AI 视觉重新识别</button>
           <button id="confirm-questions" class="primary-button" type="button" hidden>确认并逐题求解</button>
         </div>
       </section>
       <footer class="ai-disclaimer">解答由AI生成，请注意甄别。</footer>
     </main>
     <script src="result-store.js"></script>
+    <script src="api-profiles.js"></script>
+    <script src="exporter.js"></script>
     <script src="answer-renderer.js"></script>
     <script src="results.js"></script>
   </body>

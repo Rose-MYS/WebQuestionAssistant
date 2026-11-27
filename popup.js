@@ -1,4 +1,5 @@
 const instructionInput = document.getElementById("instruction");
+const instructionGroup = document.getElementById("instruction-group");
 const statusElement = document.getElementById("status");
 const settingsButton = document.getElementById("open-settings");
 const captureButton = document.getElementById("capture-page");
@@ -10,9 +11,12 @@ const updateBanner = document.getElementById("update-banner");
 const updateText = document.getElementById("update-text");
 const updateDownloadButton = document.getElementById("update-download");
 const updateDismissButton = document.getElementById("update-dismiss");
+const activeProfileHint = document.getElementById("active-profile-hint");
+const modeRadios = [...document.querySelectorAll('input[name="popup-mode"]')];
 const UPDATE_REPO = "wrhllll/WebQuestionAssistant";
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
-let settings;
+let activeProfile = null;
+let workflowMode = "local";
 let pendingUpdate = null;
 let screenshotDataUrl = "";
 let screenshotId = "";
@@ -25,21 +29,40 @@ function setStatus(message, isError = false) {
   statusElement.classList.toggle("error", isError);
 }
 
+function updateModeUi() {
+  for (const radio of modeRadios) {
+    radio.checked = radio.value === workflowMode;
+    radio.disabled = captureInProgress || requestInProgress;
+  }
+  const isAi = workflowMode === "ai";
+  instructionGroup.hidden = !isAi;
+  submitButton.textContent = isAi
+    ? "AI 视觉识别并切分"
+    : "本地自动框选并导出（无需 API）";
+  if (isAi) {
+    activeProfileHint.hidden = false;
+    activeProfileHint.textContent = activeProfile
+      ? `当前 API：${activeProfile.name}（${activeProfile.model || "未填模型"}）`
+      : "尚未配置 API，请先点击右上角“设置”。";
+  } else {
+    activeProfileHint.hidden = true;
+  }
+}
+
 function updateButtons() {
   captureButton.disabled = captureInProgress || requestInProgress;
   settingsButton.disabled = captureInProgress || requestInProgress;
   cancelButton.hidden = !captureInProgress;
   cancelButton.disabled = !captureInProgress || cancelPending;
   submitButton.disabled = captureInProgress || requestInProgress || !screenshotDataUrl;
+  updateModeUi();
 }
 
 async function loadSettings() {
-  const saved = await chrome.storage.local.get(["endpoint", "model", "apiKey"]);
-  settings = {
-    endpoint: saved.endpoint || "https://api.deepseek.com/chat/completions",
-    model: saved.model || "",
-    apiKey: saved.apiKey || ""
-  };
+  const state = await ApiProfiles.loadState();
+  activeProfile = state.activeProfile;
+  workflowMode = state.defaultWorkflowMode;
+  updateModeUi();
 }
 
 captureButton.addEventListener("click", async () => {
@@ -126,20 +149,15 @@ window.addEventListener("pagehide", () => {
   }
 });
 
-function getEndpointPermission(endpoint) {
-  let url;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    throw new Error("API 地址不是有效的 URL。");
-  }
-
-  const isLocalHttp = url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-  if ((url.protocol !== "https:" && !isLocalHttp) || url.username || url.password) {
-    throw new Error("API 地址必须使用 HTTPS（本机 localhost 可使用 HTTP），且不能包含账号密码。");
-  }
-  return { url, originPattern: `${url.origin}/*` };
+for (const radio of modeRadios) {
+  radio.addEventListener("change", async () => {
+    if (!radio.checked) {
+      return;
+    }
+    workflowMode = radio.value === "ai" ? "ai" : "local";
+    updateModeUi();
+    await ApiProfiles.setDefaultWorkflowMode(workflowMode).catch(() => {});
+  });
 }
 
 submitButton.addEventListener("click", async () => {
@@ -147,18 +165,44 @@ submitButton.addEventListener("click", async () => {
     setStatus("请先截取当前网页的整页长图。", true);
     return;
   }
-  if (!settings?.model.trim()) {
-    setStatus("请先在“设置”中填写明确支持视觉输入的模型名称。", true);
+
+  if (workflowMode === "local") {
+    requestInProgress = true;
+    updateButtons();
+    setStatus("正在打开本地裁切与导出页面…");
+    try {
+      await ResultStore.update(screenshotId, {
+        status: "captured",
+        mode: "local",
+        instruction: "",
+        error: "",
+        answer: ""
+      });
+      const resultUrl = chrome.runtime.getURL("results.html") +
+        `?id=${encodeURIComponent(screenshotId)}&mode=local`;
+      await chrome.tabs.create({ url: resultUrl, active: true });
+      setStatus("已打开本地框选与导出页面（未发送任何外部请求）。");
+    } catch (error) {
+      setStatus(error?.message || "无法打开结果页，请重试。", true);
+    } finally {
+      requestInProgress = false;
+      updateButtons();
+    }
     return;
   }
-  if (!settings?.apiKey) {
-    setStatus("请先在“设置”中填写 API Key。", true);
+
+  if (!activeProfile?.model?.trim()) {
+    setStatus("请先在“设置”中配置并启用视觉 API 档案。", true);
+    return;
+  }
+  if (!activeProfile?.apiKey) {
+    setStatus("当前启用的 API 档案尚未填写 API Key，请先在“设置”中补充。", true);
     return;
   }
 
   let endpoint;
   try {
-    endpoint = getEndpointPermission(settings.endpoint);
+    endpoint = ApiProfiles.normalizeAndValidateEndpoint(activeProfile.endpoint);
   } catch (error) {
     setStatus(error.message, true);
     return;
@@ -166,7 +210,7 @@ submitButton.addEventListener("click", async () => {
 
   requestInProgress = true;
   updateButtons();
-  setStatus("正在打开结果页并准备解答…");
+  setStatus("正在打开结果页并准备识别…");
 
   try {
     const granted = await chrome.permissions.request({
@@ -178,12 +222,13 @@ submitButton.addEventListener("click", async () => {
 
     await ResultStore.update(screenshotId, {
       status: "captured",
+      mode: "ai",
       instruction: instructionInput.value.trim(),
       error: "",
       answer: ""
     });
     const resultUrl = chrome.runtime.getURL("results.html") +
-      `?id=${encodeURIComponent(screenshotId)}`;
+      `?id=${encodeURIComponent(screenshotId)}&mode=ai`;
     await chrome.tabs.create({ url: resultUrl, active: true });
     setStatus("已打开结果标签页并开始识别切分；确认题目截图前不会发送解答请求。");
   } catch (error) {

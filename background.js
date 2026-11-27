@@ -68,6 +68,180 @@ function readPageMetrics() {
   };
 }
 
+function detectLocalQuestionRegions() {
+  const MAX_LOCAL_QUESTIONS = 50;
+  const root = document.documentElement;
+  const body = document.body;
+  if (!root || !body) {
+    return { pageUrl: location.href, regions: [] };
+  }
+  const pageWidth = Math.max(root.scrollWidth, body.scrollWidth || 0, root.clientWidth);
+  const pageHeight = Math.max(root.scrollHeight, body.scrollHeight || 0, root.clientHeight);
+  const boilerplateSelector = 'header, nav, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"]';
+  const questionNumberPattern = /^(?:第\s*(\d+)\s*题|Question\s*(\d+)|Q\s*(\d+)|(\d+)\s*[.、)）]|（(\d+)）|\((\d+)\))/i;
+
+  function isVisible(element) {
+    if (!element || element.closest(boilerplateSelector)) {
+      return false;
+    }
+    const style = getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width >= 140 && rect.height >= 36;
+  }
+
+  function toDocRect(element) {
+    const rect = element.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.round(rect.left + window.scrollX)),
+      y: Math.max(0, Math.round(rect.top + window.scrollY)),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    };
+  }
+
+  function extractNumber(element, fallback) {
+    const text = (element.innerText || "").trim().slice(0, 40);
+    const match = questionNumberPattern.exec(text);
+    if (match) {
+      const num = match.slice(1).find(Boolean);
+      if (num) {
+        return num;
+      }
+    }
+    return String(fallback);
+  }
+
+  // Tier 1: Explicit semantic question containers
+  const semanticSelector = [
+    '[data-question-id]',
+    '[data-question]',
+    '[class*="question-item"]',
+    '[class*="question-card"]',
+    '[class*="questionItem"]',
+    '[class*="question_item"]',
+    '[class*="exam-item"]',
+    '[class*="timu"]',
+    '[class*="problem-item"]',
+    '[class*="topic-item"]',
+    '[class*="question"]'
+  ].join(",");
+
+  let candidates = [...document.querySelectorAll(semanticSelector)].filter((el) => {
+    if (!isVisible(el)) {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    if (rect.height > pageHeight * 0.85 && rect.width > pageWidth * 0.85) {
+      return false;
+    }
+    return (el.innerText || "").trim().length >= 8;
+  });
+
+  // Remove wrapper containers that enclose >= 2 other matched question elements
+  const candidateSet = new Set(candidates);
+  candidates = candidates.filter((el) => {
+    let nestedCount = 0;
+    for (const other of candidateSet) {
+      if (other !== el && el.contains(other)) {
+        nestedCount += 1;
+        if (nestedCount >= 2) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+  // Also drop inner fragments if a direct question container ancestor is already kept
+  const keptSet = new Set(candidates);
+  candidates = candidates.filter((el) => {
+    let parent = el.parentElement;
+    while (parent) {
+      if (keptSet.has(parent)) {
+        return false;
+      }
+      parent = parent.parentElement;
+    }
+    return true;
+  });
+
+  // Tier 2: Numbered block heuristic fallback
+  if (candidates.length < 2) {
+    const scope = document.querySelector("main, [role='main'], article") || body;
+    const numberedLeaves = [...scope.querySelectorAll("div, section, article, li, p, h2, h3, h4")]
+      .filter((el) => {
+        if (!isVisible(el)) {
+          return false;
+        }
+        const text = (el.innerText || "").trim();
+        if (!text || !questionNumberPattern.test(text)) {
+          return false;
+        }
+        // Prefer lowest block containing the question number
+        for (const child of el.children) {
+          const childText = (child.innerText || "").trim();
+          if (childText && questionNumberPattern.test(childText)) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+    const expanded = [];
+    for (const leaf of numberedLeaves) {
+      let box = leaf;
+      for (let step = 0; step < 3 && box.parentElement && box.parentElement !== scope; step += 1) {
+        const parent = box.parentElement;
+        const parentRect = parent.getBoundingClientRect();
+        if (parentRect.height > pageHeight * 0.55) {
+          break;
+        }
+        const numberedInside = numberedLeaves.filter((other) => parent.contains(other)).length;
+        if (numberedInside > 1) {
+          break;
+        }
+        box = parent;
+      }
+      if (!expanded.includes(box)) {
+        expanded.push(box);
+      }
+    }
+    if (expanded.length > candidates.length) {
+      candidates = expanded;
+    }
+  }
+
+  const rawRegions = candidates
+    .map((el, index) => ({
+      number: extractNumber(el, index + 1),
+      ...toDocRect(el)
+    }))
+    .filter((r) => r.width >= 140 && r.height >= 36)
+    .sort((a, b) => (Math.abs(a.y - b.y) > 20 ? a.y - b.y : a.x - b.x));
+
+  // Deduplicate heavily overlapping rectangles
+  const deduped = [];
+  for (const region of rawRegions) {
+    const overlapped = deduped.some((existing) => {
+      const ix = Math.max(0, Math.min(existing.x + existing.width, region.x + region.width) - Math.max(existing.x, region.x));
+      const iy = Math.max(0, Math.min(existing.y + existing.height, region.y + region.height) - Math.max(existing.y, region.y));
+      const inter = ix * iy;
+      const minArea = Math.min(existing.width * existing.height, region.width * region.height);
+      return minArea > 0 && inter / minArea > 0.75;
+    });
+    if (!overlapped) {
+      deduped.push(region);
+    }
+    if (deduped.length >= MAX_LOCAL_QUESTIONS) {
+      break;
+    }
+  }
+
+  return { pageUrl: location.href, regions: deduped };
+}
+
 function hideFixedElements() {
   if (window.__wqaHiddenFixed) {
     return { pageUrl: location.href, hiddenCount: window.__wqaHiddenFixed.length };
@@ -261,6 +435,15 @@ async function captureFullPage(tabId, windowId, task) {
     const maxScaleByHeight = MAX_STITCHED_HEIGHT / Math.max(1, pageHeight);
     const maxScaleByPixels = Math.sqrt(MAX_STITCHED_PIXELS / Math.max(1, pageWidth * pageHeight * 1.25));
     const renderScale = Math.max(1, Math.min(rawDpr, maxScaleByWidth, maxScaleByHeight, maxScaleByPixels));
+    let rawLocalRegions = [];
+    try {
+      const detected = await runPageScript(tabId, documentId, pageState.pageUrl, detectLocalQuestionRegions);
+      if (Array.isArray(detected?.result?.regions)) {
+        rawLocalRegions = detected.result.regions;
+      }
+    } catch {
+      rawLocalRegions = [];
+    }
     let fixedElementsHidden = false;
     let lastCaptureTime = 0;
     let currentY = 0;
@@ -449,12 +632,22 @@ async function captureFullPage(tabId, windowId, task) {
       cancelled = true;
       throw new Error("长截图已取消。");
     }
+    const localDetections = rawLocalRegions
+      .map((region) => {
+        const x = Math.max(0, Math.min(canvas.width - 1, Math.round(region.x * renderScale)));
+        const y = Math.max(0, Math.min(canvas.height - 1, Math.round(region.y * renderScale)));
+        const width = Math.min(canvas.width - x, Math.round(region.width * renderScale));
+        const height = Math.min(canvas.height - y, Math.round(region.height * renderScale));
+        return { number: region.number, x, y, width, height };
+      })
+      .filter((region) => region.width >= 24 && region.height >= 24);
     const resultId = await ResultStore.create({
       status: "captured",
       imageData: dataUrl,
       width: canvas.width,
       height: canvas.height,
       tiles,
+      localDetections,
       createdAt: Date.now()
     });
     captureResult = {

@@ -3,6 +3,8 @@ const retryButton = document.getElementById("retry-answer");
 const cancelButton = document.getElementById("cancel-questions");
 const confirmButton = document.getElementById("confirm-questions");
 const recognizeAgainButton = document.getElementById("recognize-again");
+const exportPngButton = document.getElementById("export-png");
+const exportPdfButton = document.getElementById("export-pdf");
 const confirmationHint = document.getElementById("confirmation-hint");
 const questionsTitle = document.getElementById("questions-title");
 const questionsSection = document.getElementById("questions-section");
@@ -13,7 +15,9 @@ const cropEditorStage = document.getElementById("crop-editor-stage");
 const cropEditorOverlay = document.getElementById("crop-editor-overlay");
 const cropEditorMode = document.getElementById("crop-editor-mode");
 const addQuestionModeButton = document.getElementById("add-question-mode");
-const resultId = new URLSearchParams(location.search).get("id");
+const searchParams = new URLSearchParams(location.search);
+const resultId = searchParams.get("id");
+const initialMode = searchParams.get("mode") || "";
 const MAX_QUESTIONS = 50;
 const MAX_CROP_PIXELS_MULTIPLIER = 8;
 const MIN_CROP_WIDTH = 24;
@@ -42,10 +46,19 @@ function updateControls() {
   cancelButton.hidden = !requestActive;
   cancelButton.disabled = !requestActive || activeController?.signal.aborted;
   const awaitingConfirmation = record?.status === "awaiting_confirmation";
+  const hasQuestions = Array.isArray(record?.questions) && record.questions.length > 0;
   confirmButton.hidden = !awaitingConfirmation;
   confirmButton.disabled = requestActive;
   recognizeAgainButton.hidden = !awaitingConfirmation;
   recognizeAgainButton.disabled = requestActive;
+  if (exportPngButton) {
+    exportPngButton.hidden = !hasQuestions && !awaitingConfirmation;
+    exportPngButton.disabled = requestActive || !hasQuestions;
+  }
+  if (exportPdfButton) {
+    exportPdfButton.hidden = !hasQuestions && !awaitingConfirmation;
+    exportPdfButton.disabled = requestActive || !hasQuestions;
+  }
   addQuestionModeButton.disabled = requestActive || !awaitingConfirmation;
   retryButton.disabled = requestActive;
 }
@@ -227,15 +240,31 @@ function getEndpointPermission(endpoint) {
 }
 
 async function loadApiSettings(requestPermission) {
-  const saved = await chrome.storage.local.get(["endpoint", "model", "apiKey"]);
-  const endpoint = getEndpointPermission(
-    saved.endpoint || "https://api.deepseek.com/chat/completions"
-  );
-  const model = typeof saved.model === "string" ? saved.model.trim() : "";
+  let rawEndpoint = "https://api.deepseek.com/chat/completions";
+  let model = "";
+  let apiKey = "";
+  if (typeof ApiProfiles !== "undefined") {
+    const active = await ApiProfiles.getActiveProfile();
+    if (!active) {
+      throw new Error("尚未配置并启用视觉 API 档案，请先打开 API 设置。");
+    }
+    rawEndpoint = active.endpoint;
+    model = typeof active.model === "string" ? active.model.trim() : "";
+    apiKey = active.apiKey || "";
+  } else {
+    const saved = await chrome.storage.local.get(["endpoint", "model", "apiKey"]);
+    rawEndpoint = saved.endpoint || rawEndpoint;
+    model = typeof saved.model === "string" ? saved.model.trim() : "";
+    apiKey = saved.apiKey || "";
+  }
+
+  const endpoint = typeof ApiProfiles !== "undefined"
+    ? ApiProfiles.normalizeAndValidateEndpoint(rawEndpoint)
+    : getEndpointPermission(rawEndpoint);
   if (!model) {
     throw new Error("尚未设置明确支持视觉输入的模型名称，请先打开 API 设置。");
   }
-  if (!saved.apiKey) {
+  if (!apiKey) {
     throw new Error("尚未设置 API Key，请先打开 API 设置。");
   }
   let granted = await chrome.permissions.contains({
@@ -249,7 +278,7 @@ async function loadApiSettings(requestPermission) {
   if (!granted) {
     throw new Error("未授予 API 域名访问权限。请重试并允许访问后继续。");
   }
-  return { endpoint: endpoint.url, model, apiKey: saved.apiKey };
+  return { endpoint: endpoint.url, model, apiKey };
 }
 
 async function chatCompletion(api, content, signal) {
@@ -1134,8 +1163,112 @@ questionsList.addEventListener("click", async (event) => {
   await startSolving([button.dataset.questionId], false);
 });
 
+function getSelectedQuestionsForExport() {
+  if (!Array.isArray(record?.questions) || record.questions.length === 0) {
+    return [];
+  }
+  if (record.status === "awaiting_confirmation") {
+    const checkedIds = new Set(
+      [...questionsList.querySelectorAll(".include-question:checked")]
+        .map((checkbox) => checkbox.dataset.questionId)
+    );
+    if (checkedIds.size > 0) {
+      return record.questions.filter((question) => checkedIds.has(question.id));
+    }
+  }
+  return record.questions.filter((question) => question.selected !== false);
+}
+
+async function handleExport(format) {
+  if (requestActive || typeof QuestionExporter === "undefined") {
+    return;
+  }
+  if (activeGesture) {
+    setStatus("请先完成或取消当前裁切框操作，再导出。", true);
+    return;
+  }
+  const selected = getSelectedQuestionsForExport();
+  if (selected.length === 0) {
+    setStatus("请至少保留并勾选一道题目后再导出。", true);
+    return;
+  }
+  setStatus(format === "pdf" ? "正在本地打包 A4 PDF…" : "正在本地拼接合并 PNG…");
+  try {
+    if (format === "pdf") {
+      const info = await QuestionExporter.exportA4Pdf(selected);
+      setStatus(`已导出 A4 PDF（共 ${info.count} 题，${info.pages} 页）：${info.filename}`);
+    } else {
+      const info = await QuestionExporter.exportMergedPng(selected);
+      setStatus(`已导出合并 PNG（共 ${info.count} 题）：${info.filename}`);
+    }
+  } catch (error) {
+    setStatus(`导出失败：${error?.message || "未知错误。"}`, true);
+  }
+}
+
+async function applyLocalDetections() {
+  await prepareCropEditorImage();
+  const sourceImage = editorSourceImage;
+  const detections = Array.isArray(record.localDetections) ? record.localDetections : [];
+  const crops = [];
+  const usedNumbers = new Set();
+
+  for (let index = 0; index < detections.length; index += 1) {
+    const region = detections[index];
+    const pad = 8;
+    const crop = clampCropRect({
+      x: region.x - pad,
+      y: region.y - pad,
+      width: region.width + pad * 2,
+      height: region.height + pad * 2
+    }, sourceImage.naturalWidth, sourceImage.naturalHeight);
+    if (crop.width < MIN_CROP_WIDTH || crop.height < MIN_CROP_HEIGHT) {
+      continue;
+    }
+    let number = String(region.number || index + 1).trim().slice(0, 80);
+    if (!number || usedNumbers.has(number.toLocaleLowerCase())) {
+      number = String(crops.length + 1);
+      while (usedNumbers.has(number.toLocaleLowerCase())) {
+        number = String(Number(number) + 1);
+      }
+    }
+    usedNumbers.add(number.toLocaleLowerCase());
+    crops.push({
+      id: `local-${index + 1}`,
+      number,
+      imageData: createCropData(sourceImage, crop),
+      crop,
+      selected: true,
+      status: "awaiting_confirmation",
+      answer: "",
+      error: ""
+    });
+  }
+
+  await saveRecord({
+    status: "awaiting_confirmation",
+    questions: crops,
+    error: "",
+    activeQuestionId: "",
+    confirmedAt: 0
+  });
+
+  if (crops.length === 0) {
+    setEditorAddMode(true);
+    setStatus("未从网页结构检测到题目块（可能是纯图片或 Canvas 页面），已自动开启手动框选模式；也可点击“AI 视觉重新识别”。");
+  } else {
+    setStatus(`已在本地自动框选出 ${crops.length} 道题目（未调用任何 API）。微调后可直接导出 PNG / PDF，或点击“确认并逐题求解”。`);
+  }
+}
+
 confirmButton.addEventListener("click", handleConfirmation);
 recognizeAgainButton.addEventListener("click", startRecognition);
+if (exportPngButton) {
+  exportPngButton.addEventListener("click", () => handleExport("png"));
+}
+if (exportPdfButton) {
+  exportPdfButton.addEventListener("click", () => handleExport("pdf"));
+}
 retryButton.addEventListener("click", async () => {
   if (!record || requestActive) {
     return;
@@ -1201,7 +1334,11 @@ async function loadRecord() {
     }
     renderRecord();
     if (record.status === "captured") {
-      await startRecognition();
+      if (initialMode === "local" || record.mode === "local") {
+        await applyLocalDetections();
+      } else {
+        await startRecognition();
+      }
     }
   } catch (error) {
     setStatus(`无法读取本次结果：${error?.message || "本地存储错误。"}`, true);

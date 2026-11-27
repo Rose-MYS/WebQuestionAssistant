@@ -46,6 +46,8 @@ jobs:
           mkdir -p "${STAGE_DIR}"
           cp \
             manifest.json \
+            api-profiles.js \
+            exporter.js \
             background.js \
             popup.html \
             popup.js \
