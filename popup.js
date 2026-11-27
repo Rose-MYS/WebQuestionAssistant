@@ -64,13 +64,13 @@ function updateModeUi() {
     formatPdfCheckbox.disabled = captureInProgress || requestInProgress;
   }
   if (previewBeforeOpenCheckbox) {
-    previewBeforeOpenCheckbox.checked = previewBeforeOpen;
+    previewBeforeOpenCheckbox.checked = !previewBeforeOpen;
     previewBeforeOpenCheckbox.disabled = captureInProgress || requestInProgress;
     const span = previewBeforeOpenCheckbox.nextElementSibling;
     if (span) {
       span.textContent = isAi
-        ? "截完先在弹窗预览（不勾则直接打开 AI 识别页）"
-        : "截完后进入预览与微调页（不勾则直接自动下载）";
+        ? "不先在弹窗预览（直接打开 AI 识别页）"
+        : "不进入预览与微调页（直接自动下载）";
     }
   }
   instructionGroup.hidden = !isAi;
@@ -389,7 +389,7 @@ for (const checkbox of [formatPngCheckbox, formatPdfCheckbox]) {
 
 if (previewBeforeOpenCheckbox) {
   previewBeforeOpenCheckbox.addEventListener("change", async () => {
-    previewBeforeOpen = previewBeforeOpenCheckbox.checked;
+    previewBeforeOpen = !previewBeforeOpenCheckbox.checked;
     if (!previewBeforeOpen || workflowMode === "local") {
       screenshotFigure.hidden = true;
     } else if (screenshotDataUrl) {
