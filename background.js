@@ -21,6 +21,7 @@ function preparePageForCapture() {
     scrollY: window.scrollY,
     rootScrollBehavior: root.style.scrollBehavior,
     bodyScrollBehavior: body?.style.scrollBehavior || "",
+    devicePixelRatio: window.devicePixelRatio || 1,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
     pageWidth: Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth),
@@ -67,9 +68,33 @@ function readPageMetrics() {
   };
 }
 
+function hideFixedElements() {
+  if (window.__wqaHiddenFixed) {
+    return { pageUrl: location.href, hiddenCount: window.__wqaHiddenFixed.length };
+  }
+  const hidden = [];
+  for (const element of document.querySelectorAll("*")) {
+    const position = getComputedStyle(element).position;
+    if (position === "fixed" || position === "sticky") {
+      hidden.push({ element, visibility: element.style.visibility });
+      element.style.visibility = "hidden";
+    }
+  }
+  window.__wqaHiddenFixed = hidden;
+  return { pageUrl: location.href, hiddenCount: hidden.length };
+}
+
 async function restorePagePosition(state, verifyUrl) {
   if (verifyUrl && location.href !== state.pageUrl) {
     return false;
+  }
+  if (Array.isArray(window.__wqaHiddenFixed)) {
+    for (const item of window.__wqaHiddenFixed) {
+      if (item.element && item.element.style) {
+        item.element.style.visibility = item.visibility;
+      }
+    }
+    delete window.__wqaHiddenFixed;
   }
   const root = document.documentElement;
   const body = document.body;
@@ -231,6 +256,12 @@ async function captureFullPage(tabId, windowId, task) {
     const overlapY = Math.min(80, Math.max(8, Math.floor(viewportHeight * 0.08)));
     const stepX = Math.max(1, viewportWidth - overlapX * 2);
     const stepY = Math.max(1, viewportHeight - overlapY * 2);
+    const rawDpr = Math.min(2, Math.max(1, Number(pageState.devicePixelRatio) || 1));
+    const maxScaleByWidth = MAX_STITCHED_WIDTH / Math.max(1, pageWidth);
+    const maxScaleByHeight = MAX_STITCHED_HEIGHT / Math.max(1, pageHeight);
+    const maxScaleByPixels = Math.sqrt(MAX_STITCHED_PIXELS / Math.max(1, pageWidth * pageHeight * 1.25));
+    const renderScale = Math.max(1, Math.min(rawDpr, maxScaleByWidth, maxScaleByHeight, maxScaleByPixels));
+    let fixedElementsHidden = false;
     let lastCaptureTime = 0;
     let currentY = 0;
     let coveredHeight = 0;
@@ -270,7 +301,12 @@ async function captureFullPage(tabId, windowId, task) {
         }
         pageWidth = Math.max(pageWidth, metrics.pageWidth);
         pageHeight = Math.max(pageHeight, metrics.pageHeight);
-        ({ canvas, context } = resizeCanvas(canvas, context, pageWidth, pageHeight));
+        ({ canvas, context } = resizeCanvas(
+          canvas,
+          context,
+          pageWidth * renderScale,
+          pageHeight * renderScale
+        ));
 
         const actualX = metrics.scrollX;
         const actualY = metrics.scrollY;
@@ -315,7 +351,12 @@ async function captureFullPage(tabId, windowId, task) {
           );
           pageWidth = Math.max(pageWidth, afterCapture.result.pageWidth);
           pageHeight = Math.max(pageHeight, afterCapture.result.pageHeight);
-          ({ canvas, context } = resizeCanvas(canvas, context, pageWidth, pageHeight));
+          ({ canvas, context } = resizeCanvas(
+            canvas,
+            context,
+            pageWidth * renderScale,
+            pageHeight * renderScale
+          ));
 
           const scaleX = bitmap.width / viewportWidth;
           const scaleY = bitmap.height / viewportHeight;
@@ -341,10 +382,10 @@ async function captureFullPage(tabId, windowId, task) {
               cropTop * scaleY,
               (viewportWidth - cropLeft - cropRight) * scaleX,
               (viewportHeight - cropTop - cropBottom) * scaleY,
-              destinationX,
-              destinationY,
-              destinationWidth,
-              destinationHeight
+              destinationX * renderScale,
+              destinationY * renderScale,
+              destinationWidth * renderScale,
+              destinationHeight * renderScale
             );
             coveredWidth = destinationX + destinationWidth;
             rowCoveredHeight = Math.max(rowCoveredHeight, destinationY + destinationHeight);
@@ -353,6 +394,10 @@ async function captureFullPage(tabId, windowId, task) {
           bitmap.close();
         }
         tiles += 1;
+        if (!fixedElementsHidden && (pageWidth > viewportWidth + 1 || pageHeight > viewportHeight + 1)) {
+          await runPageScript(tabId, documentId, pageState.pageUrl, hideFixedElements);
+          fixedElementsHidden = true;
+        }
         if (tiles > MAX_TILES) {
           throw new Error(`页面需要超过 ${MAX_TILES} 次滚动截图，已停止以避免占用过多资源。`);
         }

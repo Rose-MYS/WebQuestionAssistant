@@ -25,6 +25,13 @@ let editorSourceImage;
 let activeGesture;
 let addQuestionMode = false;
 let activeQuestionId = "";
+let saveQueue = Promise.resolve();
+
+function enqueueSave(operation) {
+  const next = saveQueue.then(operation, operation);
+  saveQueue = next.catch(() => {});
+  return next;
+}
 
 function setStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -49,6 +56,7 @@ function questionStatusLabel(status) {
     pending: "等待解答",
     solving: "正在解答",
     complete: "已完成",
+    skipped: "已跳过",
     error: "失败",
     cancelled: "已取消"
   }[status] || "等待解答";
@@ -125,12 +133,12 @@ function createQuestionCard(question, index) {
     card.append(error);
   }
 
-  if (question.status === "error" || question.status === "cancelled") {
+  if (question.status === "error" || question.status === "cancelled" || question.status === "skipped") {
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "secondary-button retry-question";
     retry.dataset.questionId = question.id;
-    retry.textContent = "重试本题";
+    retry.textContent = question.status === "skipped" ? "解答本题" : "重试本题";
     retry.disabled = requestActive;
     card.append(retry);
   }
@@ -162,6 +170,8 @@ function renderRecord() {
     retryButton.hidden = true;
     if (record.error) {
       setStatus(`重新识别未成功，保留了上次裁切：${record.error}`, true);
+    } else if (questions.length === 0) {
+      setStatus("未自动识别到题目，可点击“框选新增题目”在长图上手动框选，或点击“重新识别”。");
     } else {
       setStatus(`已切分出 ${questions.length} 道题目。可编辑裁切区域、增删题目并检查最终截图。`);
     }
@@ -350,7 +360,7 @@ function parseSegments(responseText, imageWidth, imageHeight) {
     throw new Error(`识别到超过 ${MAX_QUESTIONS} 道题目，请缩小截图范围后重新识别。`);
   }
   if (candidates.length === 0) {
-    throw new Error("未识别到题目区域。请重新截取或调整补充说明后重试。");
+    return [];
   }
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -446,6 +456,16 @@ function clampCropRect(rect, imageWidth, imageHeight) {
   };
 }
 
+function moveCropRect(original, deltaX, deltaY, imageWidth, imageHeight) {
+  const minWidth = Math.min(MIN_CROP_WIDTH, imageWidth);
+  const minHeight = Math.min(MIN_CROP_HEIGHT, imageHeight);
+  const width = Math.max(minWidth, Math.min(imageWidth, Math.round(original.width)));
+  const height = Math.max(minHeight, Math.min(imageHeight, Math.round(original.height)));
+  const x = Math.max(0, Math.min(imageWidth - width, Math.round(original.x + deltaX)));
+  const y = Math.max(0, Math.min(imageHeight - height, Math.round(original.y + deltaY)));
+  return { x, y, width, height };
+}
+
 function createCropData(sourceImage, crop) {
   const canvas = document.createElement("canvas");
   canvas.width = crop.width;
@@ -535,15 +555,17 @@ function setCropBoxStyle(box, crop) {
   box.style.height = `${crop.height / record.height * 100}%`;
 }
 
-function sortQuestionsByNumber() {
+function sortQuestionsList(questions) {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  record.questions.sort((left, right) => collator.compare(left.number, right.number));
+  return [...questions].sort((left, right) => collator.compare(left.number, right.number));
 }
 
 async function saveRecord(changes) {
-  await ResultStore.update(resultId, changes);
-  record = { ...record, ...changes };
-  renderRecord();
+  await enqueueSave(async () => {
+    await ResultStore.update(resultId, changes);
+    record = { ...record, ...changes };
+    renderRecord();
+  });
 }
 
 function getEditorPoint(event) {
@@ -624,11 +646,7 @@ function updateGesture(event) {
     return;
   }
   question.crop = activeGesture.type === "move"
-    ? clampCropRect({
-        ...activeGesture.originalCrop,
-        x: activeGesture.originalCrop.x + deltaX,
-        y: activeGesture.originalCrop.y + deltaY
-      }, record.width, record.height)
+    ? moveCropRect(activeGesture.originalCrop, deltaX, deltaY, record.width, record.height)
     : getResizedCrop(activeGesture.originalCrop, activeGesture.handle, deltaX, deltaY);
   const box = findQuestionBox(question.id);
   if (box) {
@@ -679,13 +697,12 @@ async function finishGesture(event, cancelled = false) {
         answer: "",
         error: ""
       };
-      record.questions.push(question);
-      sortQuestionsByNumber();
+      const nextQuestions = sortQuestionsList([...record.questions, question]);
       activeQuestionId = question.id;
       setEditorAddMode(false);
-      await saveRecord({ questions: record.questions });
+      await saveRecord({ questions: nextQuestions });
     } catch (error) {
-      renderCropEditorBoxes();
+      renderRecord();
       setStatus(`无法创建新增题目截图：${error?.message || "裁切失败。"}`, true);
     }
     return;
@@ -971,26 +988,41 @@ function startRecognition() {
 async function startSolving(questionIds, confirmed) {
   await runActiveTask(async (api, signal) => {
     if (confirmed) {
-      const chosenQuestions = record.questions
-        .filter((question) => questionIds.includes(question.id))
-        .map((question) => ({
-          ...question,
-          selected: true,
-          status: "pending",
-          answer: "",
-          error: ""
-        }));
-      if (chosenQuestions.length === 0) {
+      const chosenIds = new Set(questionIds);
+      if (chosenIds.size === 0) {
+        throw new Error("请至少选择一道题目。");
+      }
+      const updatedQuestions = record.questions.map((question) => (
+        chosenIds.has(question.id)
+          ? {
+              ...question,
+              selected: true,
+              status: "pending",
+              answer: "",
+              error: ""
+            }
+          : {
+              ...question,
+              selected: false,
+              status: "skipped",
+              answer: "",
+              error: ""
+            }
+      ));
+      const solveIds = updatedQuestions
+        .filter((question) => chosenIds.has(question.id))
+        .map((question) => question.id);
+      if (solveIds.length === 0) {
         throw new Error("请至少选择一道题目。");
       }
       await saveRecord({
         status: "solving",
-        questions: chosenQuestions,
+        questions: updatedQuestions,
         confirmedAt: Date.now(),
         error: "",
         activeQuestionId: ""
       });
-      await solveQuestions(api, signal, chosenQuestions.map((question) => question.id));
+      await solveQuestions(api, signal, solveIds);
       return;
     }
 
@@ -1045,9 +1077,11 @@ questionsList.addEventListener("change", (event) => {
       setStatus("题号不能为空且不能重复。", true);
       return;
     }
-    question.number = number;
-    sortQuestionsByNumber();
-    saveRecord({ questions: record.questions }).catch((error) => {
+    const nextQuestions = sortQuestionsList(
+      record.questions.map((item) => (item.id === question.id ? { ...item, number } : item))
+    );
+    saveRecord({ questions: nextQuestions }).catch((error) => {
+      renderRecord();
       setStatus(`无法保存题号：${error?.message || "本地存储失败。"}`, true);
     });
     return;
@@ -1058,8 +1092,12 @@ questionsList.addEventListener("change", (event) => {
   }
   const question = record.questions.find((item) => item.id === checkbox.dataset.questionId);
   if (question) {
-    question.selected = checkbox.checked;
-    ResultStore.update(resultId, { questions: record.questions }).catch((error) => {
+    const previousSelected = question.selected;
+    const nextSelected = checkbox.checked;
+    question.selected = nextSelected;
+    enqueueSave(() => ResultStore.update(resultId, { questions: record.questions })).catch((error) => {
+      question.selected = previousSelected;
+      checkbox.checked = previousSelected !== false;
       setStatus(`无法保存题目选择：${error?.message || "本地存储失败。"}`, true);
     });
   }
@@ -1075,13 +1113,16 @@ questionsList.addEventListener("click", async (event) => {
   const removeButton = event.target.closest(".remove-question");
   if (removeButton && !requestActive && record?.status === "awaiting_confirmation") {
     const questionId = removeButton.dataset.questionId;
-    record.questions = record.questions.filter((question) => question.id !== questionId);
+    const nextQuestions = record.questions.filter((question) => question.id !== questionId);
+    const previousActiveId = activeQuestionId;
     if (activeQuestionId === questionId) {
       activeQuestionId = "";
     }
     try {
-      await saveRecord({ questions: record.questions });
+      await saveRecord({ questions: nextQuestions });
     } catch (error) {
+      activeQuestionId = previousActiveId;
+      renderRecord();
       setStatus(`无法删除题目：${error?.message || "本地存储失败。"}`, true);
     }
     return;
@@ -1104,7 +1145,7 @@ retryButton.addEventListener("click", async () => {
     return;
   }
   const questionIds = record.questions
-    .filter((question) => question.status !== "complete")
+    .filter((question) => question.status !== "complete" && question.status !== "skipped")
     .map((question) => question.id);
   if (questionIds.length) {
     await startSolving(questionIds, false);

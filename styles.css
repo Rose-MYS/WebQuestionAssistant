@@ -232,7 +232,8 @@ button:disabled {
   margin-top: 20px;
 }
 
-.results-answer .answer-content {
+.results-answer .answer-content,
+.question-card .answer-content {
   border: 1px solid #d8dee4;
   border-radius: 6px;
   padding: 16px;
@@ -240,37 +241,47 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.results-answer .answer-content > :first-child {
+.results-answer .answer-content > :first-child,
+.question-card .answer-content > :first-child {
   margin-top: 0;
 }
 
-.results-answer .answer-content > :last-child {
+.results-answer .answer-content > :last-child,
+.question-card .answer-content > :last-child {
   margin-bottom: 0;
 }
 
-.results-answer p {
+.results-answer p,
+.question-card .answer-content p {
   line-height: 1.65;
 }
 
-.results-answer .answer-content pre {
+.results-answer .answer-content pre,
+.question-card .answer-content pre {
   overflow-x: auto;
   white-space: pre;
+  padding: 10px 12px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
   background: #fff;
 }
 
-.results-answer code {
+.results-answer code,
+.question-card .answer-content code {
   border-radius: 4px;
   padding: 1px 4px;
   background: #eaeef2;
   font-family: Consolas, monospace;
 }
 
-.results-answer pre pre code {
+.results-answer pre code,
+.question-card .answer-content pre code {
   padding: 0;
   background: transparent;
 }
 
-.results-answer blockquote {
+.results-answer blockquote,
+.question-card .answer-content blockquote {
   border-left: 3px solid #d0d7de;
   margin: 12px 0;
   padding-left: 12px;
@@ -278,8 +289,36 @@ button:disabled {
 }
 
 .results-answer ul,
-.results-answer ol {
+.results-answer ol,
+.question-card .answer-content ul,
+.question-card .answer-content ol {
   padding-left: 24px;
+}
+
+.question-card .answer-content table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+  background: #fff;
+}
+
+.question-card .answer-content th,
+.question-card .answer-content td {
+  border: 1px solid #d0d7de;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.question-card .answer-content th {
+  background: #f6f8fa;
+  font-weight: 600;
+}
+
+menclose[notation="box"],
+.math-boxed {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  padding: 1px 4px;
 }
 
 .math-display {
@@ -359,6 +398,11 @@ button:disabled {
 .status-cancelled {
   background: #ffebe9;
   color: #cf222e;
+}
+
+.status-skipped {
+  background: #eaeef2;
+  color: #57606a;
 }
 
 .question-text {

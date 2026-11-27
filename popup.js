@@ -191,5 +191,11 @@ document.getElementById("open-settings").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
+chrome.storage.onChanged.addListener((_changes, areaName) => {
+  if (areaName === "local") {
+    loadSettings().catch(() => {});
+  }
+});
+
 loadSettings().catch(() => setStatus("读取设置失败，请重新打开扩展。", true));
 updateButtons();
