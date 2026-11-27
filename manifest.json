@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "网页题目助手",
-  "version": "1.7.0",
+  "version": "2.0.0",
   "description": "手动编辑题目截图并逐题求解，支持 LaTeX 公式。",
   "permissions": [
     "activeTab",
