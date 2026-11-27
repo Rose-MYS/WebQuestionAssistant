@@ -1,0 +1,78 @@
+name: Build and Release Extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v2.2.0, defaults to manifest version)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine and validate version
+        id: meta
+        run: |
+          MANIFEST_VERSION=$(node -p 'JSON.parse(require("fs").readFileSync("manifest.json","utf8")).version')
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            TAG_VERSION="${TAG#v}"
+            if [[ "${TAG_VERSION}" != "${MANIFEST_VERSION}" ]]; then
+              echo "Tag version (${TAG_VERSION}) does not match manifest.json version (${MANIFEST_VERSION})." >&2
+              exit 1
+            fi
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            if [[ -z "${TAG}" ]]; then
+              TAG="v${MANIFEST_VERSION}"
+            fi
+          fi
+          echo "version=${MANIFEST_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Package clean extension zip
+        run: |
+          STAGE_DIR="dist/web-question-assistant"
+          mkdir -p "${STAGE_DIR}"
+          cp \
+            manifest.json \
+            api-profiles.js \
+            exporter.js \
+            local-question-detector.js \
+            background.js \
+            popup.html \
+            popup.js \
+            options.html \
+            options.js \
+            results.html \
+            results.js \
+            result-store.js \
+            answer-renderer.js \
+            styles.css \
+            README.md \
+            "${STAGE_DIR}/"
+          (cd "${STAGE_DIR}" && zip -r "../web-question-assistant-v${{ steps.meta.outputs.version }}.zip" .)
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSET="dist/web-question-assistant-v${{ steps.meta.outputs.version }}.zip"
+          TAG="${{ steps.meta.outputs.tag }}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSET}" --clobber
+          else
+            gh release create "${TAG}" "${ASSET}" \
+              --title "WebQuestionAssistant ${TAG}" \
+              --generate-notes
+          fi
