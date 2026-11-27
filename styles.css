@@ -812,3 +812,32 @@ select {
 .export-actions {
   flex-wrap: wrap;
 }
+
+.preview-toggle,
+.trim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.preview-toggle input,
+.trim-toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.crop-editor-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.trim-toggle[hidden] {
+  display: none;
+}

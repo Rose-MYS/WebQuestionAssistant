@@ -119,6 +119,77 @@ function detectLocalQuestionRegions() {
     };
   }
 
+  const answerAreaSelector = [
+    ".edui-editor",
+    ".edui-default",
+    "[class*='ueditor']",
+    "[class*='tinymce']",
+    ".tox-tinymce",
+    ".ql-container",
+    ".ql-toolbar",
+    ".w-e-text-container",
+    ".w-e-toolbar",
+    "[class*='answer-box']",
+    "[class*='answerBox']",
+    "[class*='answer_box']",
+    "[class*='answer-area']",
+    "[class*='answerArea']",
+    "[class*='myAnswer']",
+    "[class*='stuAnswer']",
+    "[class*='reply-box']",
+    "[class*='editor-box']",
+    "[class*='rich-editor']",
+    "[class*='upload']",
+    "textarea",
+    "iframe",
+    "[contenteditable='true']"
+  ].join(",");
+  const answerLabelPattern = /^(?:我的答案|作答区|答题区|请输入答案|输入答案|答案)[:：]?$/;
+
+  function computeStemRect(element, fullRect) {
+    let cutoffY = fullRect.y + fullRect.height;
+    const answerNodes = [...element.querySelectorAll(answerAreaSelector)];
+    for (const node of answerNodes) {
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") {
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 40 || rect.height < 20) {
+        continue;
+      }
+      const topY = Math.round(rect.top + window.scrollY);
+      if (topY > fullRect.y + 18 && topY < cutoffY) {
+        cutoffY = topY;
+      }
+    }
+
+    if (cutoffY < fullRect.y + fullRect.height) {
+      // Also trim short "我的答案：" label immediately above the editor if present
+      for (const node of element.querySelectorAll("div, p, span, label, h4, h5")) {
+        const text = (node.innerText || "").trim();
+        if (!text || text.length > 16 || !answerLabelPattern.test(text)) {
+          continue;
+        }
+        const rect = node.getBoundingClientRect();
+        const topY = Math.round(rect.top + window.scrollY);
+        if (topY > fullRect.y + 18 && topY < cutoffY && cutoffY - topY < 60) {
+          cutoffY = topY;
+        }
+      }
+      const trimmedHeight = Math.max(28, cutoffY - fullRect.y - 6);
+      if (trimmedHeight < fullRect.height - 12) {
+        return {
+          x: fullRect.x,
+          y: fullRect.y,
+          width: fullRect.width,
+          height: trimmedHeight
+        };
+      }
+    }
+    return { ...fullRect };
+  }
+
   function extractNumber(element, fallback) {
     const text = (element.innerText || "").trim().slice(0, 40);
     const match = questionNumberPattern.exec(text);
@@ -231,11 +302,17 @@ function detectLocalQuestionRegions() {
   }
 
   const rawRegions = candidates
-    .map((el, index) => ({
-      number: extractNumber(el, index + 1),
-      ...toDocRect(el)
-    }))
-    .filter((r) => r.width >= 140 && r.height >= 36)
+    .map((el, index) => {
+      const fullRect = toDocRect(el);
+      const stemRect = computeStemRect(el, fullRect);
+      return {
+        number: extractNumber(el, index + 1),
+        ...stemRect,
+        stemRect,
+        fullRect
+      };
+    })
+    .filter((r) => r.width >= 140 && r.height >= 28)
     .sort((a, b) => (Math.abs(a.y - b.y) > 20 ? a.y - b.y : a.x - b.x));
 
   // Deduplicate heavily overlapping rectangles
@@ -653,13 +730,23 @@ async function captureFullPage(tabId, windowId, task) {
       cancelled = true;
       throw new Error("长截图已取消。");
     }
+    const scaleRect = (rect) => {
+      const x = Math.max(0, Math.min(canvas.width - 1, Math.round(rect.x * renderScale)));
+      const y = Math.max(0, Math.min(canvas.height - 1, Math.round(rect.y * renderScale)));
+      const width = Math.min(canvas.width - x, Math.round(rect.width * renderScale));
+      const height = Math.min(canvas.height - y, Math.round(rect.height * renderScale));
+      return { x, y, width, height };
+    };
     const localDetections = rawLocalRegions
       .map((region) => {
-        const x = Math.max(0, Math.min(canvas.width - 1, Math.round(region.x * renderScale)));
-        const y = Math.max(0, Math.min(canvas.height - 1, Math.round(region.y * renderScale)));
-        const width = Math.min(canvas.width - x, Math.round(region.width * renderScale));
-        const height = Math.min(canvas.height - y, Math.round(region.height * renderScale));
-        return { number: region.number, x, y, width, height };
+        const stemRect = scaleRect(region.stemRect || region);
+        const fullRect = scaleRect(region.fullRect || region);
+        return {
+          number: region.number,
+          ...stemRect,
+          stemRect,
+          fullRect
+        };
       })
       .filter((region) => region.width >= 24 && region.height >= 24);
     const resultId = await ResultStore.create({

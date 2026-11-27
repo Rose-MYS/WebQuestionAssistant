@@ -15,6 +15,8 @@ const cropEditorStage = document.getElementById("crop-editor-stage");
 const cropEditorOverlay = document.getElementById("crop-editor-overlay");
 const cropEditorMode = document.getElementById("crop-editor-mode");
 const addQuestionModeButton = document.getElementById("add-question-mode");
+const trimAnswerToggleWrap = document.getElementById("trim-answer-toggle-wrap");
+const trimAnswerToggle = document.getElementById("trim-answer-toggle");
 const searchParams = new URLSearchParams(location.search);
 const resultId = searchParams.get("id");
 const initialMode = searchParams.get("mode") || "";
@@ -60,6 +62,15 @@ function updateControls() {
     exportPdfButton.disabled = requestActive || !hasQuestions;
   }
   addQuestionModeButton.disabled = requestActive || !awaitingConfirmation;
+  if (trimAnswerToggleWrap && trimAnswerToggle) {
+    const hasTrimmableLocal = awaitingConfirmation &&
+      Array.isArray(record?.localDetections) &&
+      record.localDetections.some((d) =>
+        d.fullRect && d.stemRect && d.fullRect.height > d.stemRect.height + 8
+      );
+    trimAnswerToggleWrap.hidden = !hasTrimmableLocal;
+    trimAnswerToggle.disabled = requestActive;
+  }
   retryButton.disabled = requestActive;
 }
 
@@ -1206,7 +1217,7 @@ async function handleExport(format) {
   }
 }
 
-async function applyLocalDetections() {
+async function applyLocalDetections(trimAnswerAreas = true, { preserveManual = false } = {}) {
   await prepareCropEditorImage();
   const sourceImage = editorSourceImage;
   const detections = Array.isArray(record.localDetections) ? record.localDetections : [];
@@ -1215,12 +1226,15 @@ async function applyLocalDetections() {
 
   for (let index = 0; index < detections.length; index += 1) {
     const region = detections[index];
+    const targetRect = trimAnswerAreas
+      ? (region.stemRect || region)
+      : (region.fullRect || region);
     const pad = 8;
     const crop = clampCropRect({
-      x: region.x - pad,
-      y: region.y - pad,
-      width: region.width + pad * 2,
-      height: region.height + pad * 2
+      x: targetRect.x - pad,
+      y: targetRect.y - pad,
+      width: targetRect.width + pad * 2,
+      height: targetRect.height + pad * 2
     }, sourceImage.naturalWidth, sourceImage.naturalHeight);
     if (crop.width < MIN_CROP_WIDTH || crop.height < MIN_CROP_HEIGHT) {
       continue;
@@ -1245,19 +1259,31 @@ async function applyLocalDetections() {
     });
   }
 
+  const manualQuestions = preserveManual && Array.isArray(record.questions)
+    ? record.questions.filter((q) => !String(q.id || "").startsWith("local-"))
+    : [];
+  const combined = sortQuestionsList([...crops, ...manualQuestions]);
+
+  if (trimAnswerToggle) {
+    trimAnswerToggle.checked = trimAnswerAreas;
+  }
+
   await saveRecord({
     status: "awaiting_confirmation",
-    questions: crops,
+    questions: combined,
+    trimAnswerAreas,
     error: "",
     activeQuestionId: "",
     confirmedAt: 0
   });
 
-  if (crops.length === 0) {
+  if (combined.length === 0) {
     setEditorAddMode(true);
     setStatus("未从网页结构检测到题目块（可能是纯图片或 Canvas 页面），已自动开启手动框选模式；也可点击“AI 视觉重新识别”。");
   } else {
-    setStatus(`已在本地自动框选出 ${crops.length} 道题目（未调用任何 API）。微调后可直接导出 PNG / PDF，或点击“确认并逐题求解”。`);
+    setStatus(trimAnswerAreas
+      ? `已在本地自动框选出 ${combined.length} 道题目（已自动裁掉答题输入区，未调用 API）。微调后可直接导出 PNG / PDF。`
+      : `已切换为完整题目卡片（共 ${combined.length} 道题）。微调后可直接导出 PNG / PDF。`);
   }
 }
 
@@ -1268,6 +1294,18 @@ if (exportPngButton) {
 }
 if (exportPdfButton) {
   exportPdfButton.addEventListener("click", () => handleExport("pdf"));
+}
+if (trimAnswerToggle) {
+  trimAnswerToggle.addEventListener("change", async () => {
+    if (requestActive || record?.status !== "awaiting_confirmation") {
+      return;
+    }
+    try {
+      await applyLocalDetections(trimAnswerToggle.checked, { preserveManual: true });
+    } catch (error) {
+      setStatus(`切换裁切范围失败：${error?.message || "未知错误。"}`, true);
+    }
+  });
 }
 retryButton.addEventListener("click", async () => {
   if (!record || requestActive) {
@@ -1330,6 +1368,9 @@ async function loadRecord() {
       });
     }
     if (record.status === "awaiting_confirmation") {
+      if (trimAnswerToggle) {
+        trimAnswerToggle.checked = record.trimAnswerAreas !== false;
+      }
       await prepareCropEditorImage();
     }
     renderRecord();

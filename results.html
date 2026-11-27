@@ -26,9 +26,15 @@
           <div class="crop-editor-heading">
             <div>
               <h3>在整页截图上编辑题目区域</h3>
-              <p id="crop-editor-hint" class="hint">拖动题目框可移动，拖动边缘或角点可调整；触屏同样支持。用下方按钮开始框选新增区域。</p>
+              <p id="crop-editor-hint" class="hint">拖动题目框可移动，拖动边缘或角点可调整；触屏同样支持。用右侧按钮开始框选新增区域。</p>
             </div>
-            <button id="add-question-mode" class="secondary-button" type="button">框选新增题目</button>
+            <div class="crop-editor-controls">
+              <label id="trim-answer-toggle-wrap" class="trim-toggle" hidden>
+                <input id="trim-answer-toggle" type="checkbox" checked>
+                <span>自动裁掉答题输入区</span>
+              </label>
+              <button id="add-question-mode" class="secondary-button" type="button">框选新增题目</button>
+            </div>
           </div>
           <p id="crop-editor-mode" class="status" role="status" aria-live="polite" hidden></p>
           <div id="crop-editor-viewport" class="crop-editor-viewport">

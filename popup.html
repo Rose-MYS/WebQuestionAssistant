@@ -30,17 +30,21 @@
         </label>
       </div>
       <p id="active-profile-hint" class="active-profile-hint" hidden></p>
-      <button id="capture-page" class="secondary-button" type="button">截取整页长图</button>
+      <label class="preview-toggle">
+        <input id="preview-before-open" type="checkbox">
+        <span>截完先在弹窗预览（默认直接打开结果页）</span>
+      </label>
+      <div id="instruction-group" hidden>
+        <label for="instruction">补充说明（可选）</label>
+        <textarea id="instruction" rows="2" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
+      </div>
+      <button id="capture-page" class="primary-button" type="button">一键截取并本地框选导出</button>
       <button id="cancel-capture" class="secondary-button cancel-button" type="button" hidden>取消长截图</button>
       <figure id="screenshot-figure" class="screenshot-figure" hidden>
         <img id="screenshot-preview" alt="当前网页长截图预览">
         <figcaption>已拼接当前网页可滚动区域；可在预览框内查看长图，或重新截取。</figcaption>
       </figure>
-      <div id="instruction-group">
-        <label for="instruction">补充说明（可选）</label>
-        <textarea id="instruction" rows="3" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
-      </div>
-      <button id="submit" class="primary-button" type="button" disabled>本地自动框选并导出（无需 API）</button>
+      <button id="submit" class="primary-button" type="button" hidden disabled>进入本地框选并导出</button>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>
     <script src="result-store.js"></script>

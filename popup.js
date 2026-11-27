@@ -12,11 +12,13 @@ const updateText = document.getElementById("update-text");
 const updateDownloadButton = document.getElementById("update-download");
 const updateDismissButton = document.getElementById("update-dismiss");
 const activeProfileHint = document.getElementById("active-profile-hint");
+const previewBeforeOpenCheckbox = document.getElementById("preview-before-open");
 const modeRadios = [...document.querySelectorAll('input[name="popup-mode"]')];
 const UPDATE_REPO = "wrhllll/WebQuestionAssistant";
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 let activeProfile = null;
 let workflowMode = "local";
+let previewBeforeOpen = false;
 let pendingUpdate = null;
 let screenshotDataUrl = "";
 let screenshotId = "";
@@ -34,11 +36,24 @@ function updateModeUi() {
     radio.checked = radio.value === workflowMode;
     radio.disabled = captureInProgress || requestInProgress;
   }
+  if (previewBeforeOpenCheckbox) {
+    previewBeforeOpenCheckbox.checked = previewBeforeOpen;
+    previewBeforeOpenCheckbox.disabled = captureInProgress || requestInProgress;
+  }
   const isAi = workflowMode === "ai";
   instructionGroup.hidden = !isAi;
-  submitButton.textContent = isAi
-    ? "AI 视觉识别并切分"
-    : "本地自动框选并导出（无需 API）";
+  if (previewBeforeOpen) {
+    captureButton.className = screenshotDataUrl ? "secondary-button" : "primary-button";
+    captureButton.textContent = screenshotDataUrl ? "重新截取整页" : "截取整页长图";
+    submitButton.hidden = !screenshotDataUrl;
+    submitButton.textContent = isAi ? "AI 视觉识别并切分" : "进入本地框选并导出";
+  } else {
+    captureButton.className = "primary-button";
+    captureButton.textContent = isAi
+      ? "一键截取并 AI 识别"
+      : "一键截取并本地框选导出";
+    submitButton.hidden = true;
+  }
   if (isAi) {
     activeProfileHint.hidden = false;
     activeProfileHint.textContent = activeProfile
@@ -59,13 +74,56 @@ function updateButtons() {
 }
 
 async function loadSettings() {
-  const state = await ApiProfiles.loadState();
+  const [state, extra] = await Promise.all([
+    ApiProfiles.loadState(),
+    chrome.storage.local.get(["previewBeforeOpen"])
+  ]);
   activeProfile = state.activeProfile;
   workflowMode = state.defaultWorkflowMode;
+  previewBeforeOpen = Boolean(extra.previewBeforeOpen);
   updateModeUi();
 }
 
+async function ensureAiReadyAndPermission() {
+  if (!activeProfile?.model?.trim()) {
+    throw new Error("请先在“设置”中配置并启用视觉 API 档案。");
+  }
+  if (!activeProfile?.apiKey) {
+    throw new Error("当前启用的 API 档案尚未填写 API Key，请先在“设置”中补充。");
+  }
+  const endpoint = ApiProfiles.normalizeAndValidateEndpoint(activeProfile.endpoint);
+  const granted = await chrome.permissions.request({
+    origins: [endpoint.originPattern]
+  });
+  if (!granted) {
+    throw new Error("未授予 API 域名访问权限，无法发送请求。");
+  }
+}
+
+async function openResultsPage(id) {
+  const mode = workflowMode === "ai" ? "ai" : "local";
+  await ResultStore.update(id, {
+    status: "captured",
+    mode,
+    instruction: mode === "ai" ? instructionInput.value.trim() : "",
+    error: "",
+    answer: ""
+  });
+  const resultUrl = chrome.runtime.getURL("results.html") +
+    `?id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`;
+  await chrome.tabs.create({ url: resultUrl, active: true });
+}
+
 captureButton.addEventListener("click", async () => {
+  if (!previewBeforeOpen && workflowMode === "ai") {
+    try {
+      await ensureAiReadyAndPermission();
+    } catch (error) {
+      setStatus(error?.message || "API 配置未就绪。", true);
+      return;
+    }
+  }
+
   captureInProgress = true;
   cancelPending = false;
   screenshotDataUrl = "";
@@ -110,9 +168,18 @@ captureButton.addEventListener("click", async () => {
 
     screenshotDataUrl = result.dataUrl;
     screenshotId = result.resultId;
+
+    if (!previewBeforeOpen) {
+      setStatus("长截图完成，正在打开裁切与结果页…");
+      await openResultsPage(screenshotId);
+      setStatus(workflowMode === "ai"
+        ? "已打开结果页并开始 AI 识别切分。"
+        : "已打开本地框选与导出页面（未调用任何 API）。");
+      return;
+    }
+
     screenshotPreview.src = result.dataUrl;
     screenshotFigure.hidden = false;
-    captureButton.textContent = "重新截取整页";
     setStatus(`长截图完成（${result.width} × ${result.height}），页面滚动位置已恢复。`);
   } catch (error) {
     setStatus(error.message || "长截图失败。受限页面可能不支持滚动或截图。", true);
@@ -160,77 +227,37 @@ for (const radio of modeRadios) {
   });
 }
 
+if (previewBeforeOpenCheckbox) {
+  previewBeforeOpenCheckbox.addEventListener("change", async () => {
+    previewBeforeOpen = previewBeforeOpenCheckbox.checked;
+    if (!previewBeforeOpen) {
+      screenshotFigure.hidden = true;
+    } else if (screenshotDataUrl) {
+      screenshotFigure.hidden = false;
+    }
+    updateModeUi();
+    await chrome.storage.local.set({ previewBeforeOpen }).catch(() => {});
+  });
+}
+
 submitButton.addEventListener("click", async () => {
   if (!screenshotDataUrl || !screenshotId) {
     setStatus("请先截取当前网页的整页长图。", true);
     return;
   }
 
-  if (workflowMode === "local") {
-    requestInProgress = true;
-    updateButtons();
-    setStatus("正在打开本地裁切与导出页面…");
-    try {
-      await ResultStore.update(screenshotId, {
-        status: "captured",
-        mode: "local",
-        instruction: "",
-        error: "",
-        answer: ""
-      });
-      const resultUrl = chrome.runtime.getURL("results.html") +
-        `?id=${encodeURIComponent(screenshotId)}&mode=local`;
-      await chrome.tabs.create({ url: resultUrl, active: true });
-      setStatus("已打开本地框选与导出页面（未发送任何外部请求）。");
-    } catch (error) {
-      setStatus(error?.message || "无法打开结果页，请重试。", true);
-    } finally {
-      requestInProgress = false;
-      updateButtons();
-    }
-    return;
-  }
-
-  if (!activeProfile?.model?.trim()) {
-    setStatus("请先在“设置”中配置并启用视觉 API 档案。", true);
-    return;
-  }
-  if (!activeProfile?.apiKey) {
-    setStatus("当前启用的 API 档案尚未填写 API Key，请先在“设置”中补充。", true);
-    return;
-  }
-
-  let endpoint;
-  try {
-    endpoint = ApiProfiles.normalizeAndValidateEndpoint(activeProfile.endpoint);
-  } catch (error) {
-    setStatus(error.message, true);
-    return;
-  }
-
   requestInProgress = true;
   updateButtons();
-  setStatus("正在打开结果页并准备识别…");
+  setStatus(workflowMode === "ai" ? "正在打开结果页并准备识别…" : "正在打开本地裁切与导出页面…");
 
   try {
-    const granted = await chrome.permissions.request({
-      origins: [endpoint.originPattern]
-    });
-    if (!granted) {
-      throw new Error("未授予 API 域名访问权限，无法发送请求。");
+    if (workflowMode === "ai") {
+      await ensureAiReadyAndPermission();
     }
-
-    await ResultStore.update(screenshotId, {
-      status: "captured",
-      mode: "ai",
-      instruction: instructionInput.value.trim(),
-      error: "",
-      answer: ""
-    });
-    const resultUrl = chrome.runtime.getURL("results.html") +
-      `?id=${encodeURIComponent(screenshotId)}&mode=ai`;
-    await chrome.tabs.create({ url: resultUrl, active: true });
-    setStatus("已打开结果标签页并开始识别切分；确认题目截图前不会发送解答请求。");
+    await openResultsPage(screenshotId);
+    setStatus(workflowMode === "ai"
+      ? "已打开结果标签页并开始识别切分；确认题目截图前不会发送解答请求。"
+      : "已打开本地框选与导出页面（未发送任何外部请求）。");
   } catch (error) {
     setStatus(error?.message || "无法打开结果页，请重试。", true);
   } finally {
