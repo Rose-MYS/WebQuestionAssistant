@@ -1,47 +1,217 @@
 var ApiProfiles = (() => {
   const PROVIDER_PRESETS = [
+    // 国内主流
+    {
+      id: "qwen",
+      group: "国内主流",
+      label: "通义千问 (阿里云 DashScope)",
+      endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      models: ["qwen-vl-max", "qwen-vl-plus", "qwen2.5-vl-72b-instruct", "qvq-max"]
+    },
+    {
+      id: "zhipu",
+      group: "国内主流",
+      label: "智谱清言 (BigModel / GLM)",
+      endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      models: ["glm-4.5v", "glm-4v-plus-0111", "glm-4v-flash"]
+    },
+    {
+      id: "volcengine",
+      group: "国内主流",
+      label: "豆包 / 火山方舟 (Volcengine Ark)",
+      endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+      models: ["doubao-1-5-vision-pro-32k-250115", "doubao-seed-1-6-vision-250815"]
+    },
+    {
+      id: "moonshot",
+      group: "国内主流",
+      label: "月之暗面 (Kimi / Moonshot)",
+      endpoint: "https://api.moonshot.cn/v1/chat/completions",
+      models: ["moonshot-v1-8k-vision-preview", "moonshot-v1-32k-vision-preview", "kimi-latest"]
+    },
+    {
+      id: "stepfun",
+      group: "国内主流",
+      label: "阶跃星辰 (StepFun)",
+      endpoint: "https://api.stepfun.com/v1/chat/completions",
+      models: ["step-1o-turbo-vision", "step-1v-32k", "step-1v-8k"]
+    },
+    {
+      id: "hunyuan",
+      group: "国内主流",
+      label: "腾讯混元 (Hunyuan)",
+      endpoint: "https://api.hunyuan.cloud.tencent.com/v1/chat/completions",
+      models: ["hunyuan-turbos-vision", "hunyuan-vision"]
+    },
+    {
+      id: "qianfan",
+      group: "国内主流",
+      label: "百度千帆 (Qianfan)",
+      endpoint: "https://qianfan.baidubce.com/v2/chat/completions",
+      models: ["ernie-4.5-vl-28b-a3b", "qwen2.5-vl-72b-instruct"]
+    },
+    {
+      id: "minimax",
+      group: "国内主流",
+      label: "MiniMax",
+      endpoint: "https://api.minimax.chat/v1/chat/completions",
+      models: ["MiniMax-Text-01"]
+    },
+    {
+      id: "yi",
+      group: "国内主流",
+      label: "零一万物 (Yi)",
+      endpoint: "https://api.lingyiwanwu.com/v1/chat/completions",
+      models: ["yi-vision-v2", "yi-vision"]
+    },
+    {
+      id: "internlm",
+      group: "国内主流",
+      label: "书生浦语 (InternLM)",
+      endpoint: "https://internlm-chat.intern-ai.org.cn/puyu/api/v1/chat/completions",
+      models: ["internvl2.5-latest"]
+    },
+
+    // 国际主流
     {
       id: "gemini",
+      group: "国际主流",
       label: "Google Gemini (OpenAI 兼容)",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
     },
     {
-      id: "qwen",
-      label: "通义千问 (阿里云 DashScope)",
-      endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-      models: ["qwen-vl-max", "qwen-vl-plus", "qwen2.5-vl-72b-instruct"]
-    },
-    {
       id: "openai",
+      group: "国际主流",
       label: "OpenAI",
       endpoint: "https://api.openai.com/v1/chat/completions",
-      models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1-mini"]
+      models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"]
     },
     {
+      id: "xai",
+      group: "国际主流",
+      label: "xAI (Grok)",
+      endpoint: "https://api.x.ai/v1/chat/completions",
+      models: ["grok-2-vision-latest", "grok-4-latest"]
+    },
+    {
+      id: "mistral",
+      group: "国际主流",
+      label: "Mistral AI",
+      endpoint: "https://api.mistral.ai/v1/chat/completions",
+      models: ["pixtral-large-latest", "pixtral-12b-2409", "mistral-medium-latest"]
+    },
+    {
+      id: "groq",
+      group: "国际主流",
+      label: "Groq",
+      endpoint: "https://api.groq.com/openai/v1/chat/completions",
+      models: [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct"
+      ]
+    },
+    {
+      id: "together",
+      group: "国际主流",
+      label: "Together AI",
+      endpoint: "https://api.together.xyz/v1/chat/completions",
+      models: [
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "Qwen/Qwen2.5-VL-72B-Instruct"
+      ]
+    },
+    {
+      id: "fireworks",
+      group: "国际主流",
+      label: "Fireworks AI",
+      endpoint: "https://api.fireworks.ai/inference/v1/chat/completions",
+      models: [
+        "accounts/fireworks/models/llama4-maverick-instruct-basic",
+        "accounts/fireworks/models/qwen2p5-vl-32b-instruct"
+      ]
+    },
+
+    // 聚合与中转
+    {
       id: "openrouter",
+      group: "聚合与中转",
       label: "OpenRouter",
       endpoint: "https://openrouter.ai/api/v1/chat/completions",
       models: [
         "google/gemini-2.5-flash",
+        "google/gemini-2.5-pro",
         "openai/gpt-4o-mini",
+        "anthropic/claude-sonnet-4",
         "qwen/qwen2.5-vl-72b-instruct"
       ]
     },
     {
       id: "siliconflow",
+      group: "聚合与中转",
       label: "硅基流动 (SiliconFlow)",
       endpoint: "https://api.siliconflow.cn/v1/chat/completions",
-      models: ["Qwen/Qwen2.5-VL-72B-Instruct", "Qwen/Qwen2.5-VL-32B-Instruct"]
+      models: [
+        "Qwen/Qwen2.5-VL-72B-Instruct",
+        "Qwen/Qwen2.5-VL-32B-Instruct",
+        "Pro/Qwen/Qwen2.5-VL-7B-Instruct",
+        "deepseek-ai/deepseek-vl2"
+      ]
     },
     {
+      id: "modelscope",
+      group: "聚合与中转",
+      label: "ModelScope 魔搭社区",
+      endpoint: "https://api-inference.modelscope.cn/v1/chat/completions",
+      models: ["Qwen/Qwen2.5-VL-72B-Instruct", "Qwen/QVQ-72B-Preview"]
+    },
+    {
+      id: "ppio",
+      group: "聚合与中转",
+      label: "PPIO 派欧云",
+      endpoint: "https://api.ppinfra.com/v3/openai/chat/completions",
+      models: ["qwen/qwen2.5-vl-72b-instruct"]
+    },
+    {
+      id: "aihubmix",
+      group: "聚合与中转",
+      label: "AiHubMix",
+      endpoint: "https://aihubmix.com/v1/chat/completions",
+      models: ["gemini-2.5-flash", "gpt-4o", "claude-sonnet-4-20250514", "qwen-vl-max"]
+    },
+    {
+      id: "oneapi",
+      group: "聚合与中转",
+      label: "One API / New API (自建中转)",
+      endpoint: "",
+      models: ["gpt-4o", "gemini-2.5-flash", "claude-sonnet-4-20250514", "qwen-vl-max"]
+    },
+
+    // 本地与自定义
+    {
       id: "ollama",
+      group: "本地与自定义",
       label: "本地 Ollama",
       endpoint: "http://localhost:11434/v1/chat/completions",
-      models: ["qwen2.5vl:7b", "llama3.2-vision"]
+      models: ["qwen2.5vl:7b", "qwen2.5vl:32b", "llama3.2-vision", "gemma3:12b"]
+    },
+    {
+      id: "lmstudio",
+      group: "本地与自定义",
+      label: "本地 LM Studio",
+      endpoint: "http://localhost:1234/v1/chat/completions",
+      models: ["qwen2.5-vl-7b-instruct", "llava-v1.6-mistral-7b"]
+    },
+    {
+      id: "vllm",
+      group: "本地与自定义",
+      label: "本地 vLLM / SGLang",
+      endpoint: "http://localhost:8000/v1/chat/completions",
+      models: ["Qwen/Qwen2.5-VL-7B-Instruct"]
     },
     {
       id: "custom",
+      group: "本地与自定义",
       label: "自定义 OpenAI 兼容服务",
       endpoint: "",
       models: []

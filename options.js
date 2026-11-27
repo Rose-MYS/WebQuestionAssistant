@@ -29,11 +29,19 @@ function setStatus(message, isError = false) {
 
 function populateProviderPresets() {
   providerSelect.replaceChildren();
+  const groups = new Map();
   for (const preset of ApiProfiles.PROVIDER_PRESETS) {
+    const groupName = preset.group || "其他";
+    if (!groups.has(groupName)) {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = groupName;
+      groups.set(groupName, optgroup);
+      providerSelect.append(optgroup);
+    }
     const option = document.createElement("option");
     option.value = preset.id;
     option.textContent = preset.label;
-    providerSelect.append(option);
+    groups.get(groupName).append(option);
   }
 }
 
