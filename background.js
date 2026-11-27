@@ -764,7 +764,8 @@ async function captureFullPage(tabId, windowId, task) {
       dataUrl,
       width: canvas.width,
       height: canvas.height,
-      tiles
+      tiles,
+      localDetections
     };
   } catch (error) {
     cancelled = cancelled || task.cancelled;

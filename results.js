@@ -5,6 +5,8 @@ const confirmButton = document.getElementById("confirm-questions");
 const recognizeAgainButton = document.getElementById("recognize-again");
 const exportPngButton = document.getElementById("export-png");
 const exportPdfButton = document.getElementById("export-pdf");
+const exportPngTopButton = document.getElementById("export-png-top");
+const exportPdfTopButton = document.getElementById("export-pdf-top");
 const confirmationHint = document.getElementById("confirmation-hint");
 const questionsTitle = document.getElementById("questions-title");
 const questionsSection = document.getElementById("questions-section");
@@ -53,13 +55,17 @@ function updateControls() {
   confirmButton.disabled = requestActive;
   recognizeAgainButton.hidden = !awaitingConfirmation;
   recognizeAgainButton.disabled = requestActive;
-  if (exportPngButton) {
-    exportPngButton.hidden = !hasQuestions && !awaitingConfirmation;
-    exportPngButton.disabled = requestActive || !hasQuestions;
+  for (const button of [exportPngButton, exportPngTopButton]) {
+    if (button) {
+      button.hidden = !hasQuestions && !awaitingConfirmation;
+      button.disabled = requestActive || !hasQuestions;
+    }
   }
-  if (exportPdfButton) {
-    exportPdfButton.hidden = !hasQuestions && !awaitingConfirmation;
-    exportPdfButton.disabled = requestActive || !hasQuestions;
+  for (const button of [exportPdfButton, exportPdfTopButton]) {
+    if (button) {
+      button.hidden = !hasQuestions && !awaitingConfirmation;
+      button.disabled = requestActive || !hasQuestions;
+    }
   }
   addQuestionModeButton.disabled = requestActive || !awaitingConfirmation;
   if (trimAnswerToggleWrap && trimAnswerToggle) {
@@ -1289,11 +1295,15 @@ async function applyLocalDetections(trimAnswerAreas = true, { preserveManual = f
 
 confirmButton.addEventListener("click", handleConfirmation);
 recognizeAgainButton.addEventListener("click", startRecognition);
-if (exportPngButton) {
-  exportPngButton.addEventListener("click", () => handleExport("png"));
+for (const button of [exportPngButton, exportPngTopButton]) {
+  if (button) {
+    button.addEventListener("click", () => handleExport("png"));
+  }
 }
-if (exportPdfButton) {
-  exportPdfButton.addEventListener("click", () => handleExport("pdf"));
+for (const button of [exportPdfButton, exportPdfTopButton]) {
+  if (button) {
+    button.addEventListener("click", () => handleExport("pdf"));
+  }
 }
 if (trimAnswerToggle) {
   trimAnswerToggle.addEventListener("change", async () => {

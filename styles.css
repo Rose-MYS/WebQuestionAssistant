@@ -841,3 +841,44 @@ select {
 .trim-toggle[hidden] {
   display: none;
 }
+
+.format-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 8px;
+  padding: 6px 10px;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 12px;
+}
+
+.format-picker[hidden] {
+  display: none;
+}
+
+.format-label {
+  color: #57606a;
+  font-weight: 600;
+}
+
+.format-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.format-option input {
+  width: auto;
+  margin: 0;
+}
+
+.top-export-button {
+  width: auto;
+  margin-top: 0;
+}
