@@ -512,6 +512,18 @@ async function captureFullPage(tabId, windowId, task) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "CHECK_FOR_UPDATES") {
+    checkForReleaseUpdate(Boolean(message.force))
+      .then((info) => sendResponse({ ok: true, info }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message?.type === "DISMISS_UPDATE") {
+    dismissUpdateVersion(message.version)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === "CANCEL_FULL_PAGE_CAPTURE") {
     if (activeCapture) {
       activeCapture.cancelled = true;
@@ -539,4 +551,118 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
     });
   return true;
+});
+
+const UPDATE_REPO = "wrhllll/WebQuestionAssistant";
+const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+function parseVersionParts(version) {
+  return String(version || "")
+    .trim()
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => {
+      const match = /^\d+/.exec(part);
+      return match ? Number(match[0]) : 0;
+    });
+}
+
+function compareVersions(left, right) {
+  const a = parseVersionParts(left);
+  const b = parseVersionParts(right);
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (a[index] || 0) - (b[index] || 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function isSafeGithubUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "https:" &&
+      (parsed.hostname === "github.com" || parsed.hostname.endsWith(".githubusercontent.com"));
+  } catch {
+    return false;
+  }
+}
+
+async function syncUpdateBadge(info) {
+  if (!chrome.action?.setBadgeText) {
+    return;
+  }
+  const currentVersion = chrome.runtime.getManifest()?.version || "0.0.0";
+  const hasNewer = Boolean(
+    info?.latestVersion &&
+    isSafeGithubUrl(info.downloadUrl) &&
+    info.dismissedVersion !== info.latestVersion &&
+    compareVersions(info.latestVersion, currentVersion) > 0
+  );
+  await chrome.action.setBadgeText({ text: hasNewer ? "NEW" : "" }).catch(() => {});
+  if (hasNewer && chrome.action.setBadgeBackgroundColor) {
+    await chrome.action.setBadgeBackgroundColor({ color: "#0969da" }).catch(() => {});
+  }
+}
+
+async function checkForReleaseUpdate(force = false) {
+  const saved = await chrome.storage.local.get(["updateCheck"]);
+  const cached = saved.updateCheck || {};
+  await syncUpdateBadge(cached);
+  if (!force && cached.checkedAt && Date.now() - cached.checkedAt < UPDATE_CHECK_INTERVAL_MS) {
+    return cached;
+  }
+
+  let response;
+  try {
+    response = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+      headers: { "Accept": "application/vnd.github+json" },
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer"
+    });
+  } catch {
+    return cached;
+  }
+
+  const nextCache = { ...cached, checkedAt: Date.now() };
+  if (response.ok) {
+    const release = await response.json().catch(() => null);
+    const latestVersion = String(release?.tag_name || "").replace(/^v/i, "").trim();
+    const zipAsset = Array.isArray(release?.assets)
+      ? release.assets.find((asset) =>
+          typeof asset?.name === "string" &&
+          asset.name.toLowerCase().endsWith(".zip") &&
+          isSafeGithubUrl(asset.browser_download_url)
+        )
+      : null;
+    const downloadUrl = zipAsset?.browser_download_url ||
+      (isSafeGithubUrl(release?.html_url) ? release.html_url : "");
+    if (latestVersion && downloadUrl) {
+      nextCache.latestVersion = latestVersion;
+      nextCache.downloadUrl = downloadUrl;
+    }
+  }
+  await chrome.storage.local.set({ updateCheck: nextCache }).catch(() => {});
+  await syncUpdateBadge(nextCache);
+  return nextCache;
+}
+
+async function dismissUpdateVersion(version) {
+  const saved = await chrome.storage.local.get(["updateCheck"]);
+  const nextCache = {
+    ...(saved.updateCheck || {}),
+    dismissedVersion: String(version || "")
+  };
+  await chrome.storage.local.set({ updateCheck: nextCache }).catch(() => {});
+  await syncUpdateBadge(nextCache);
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  checkForReleaseUpdate(false).catch(() => {});
+});
+chrome.runtime.onStartup.addListener(() => {
+  checkForReleaseUpdate(false).catch(() => {});
 });

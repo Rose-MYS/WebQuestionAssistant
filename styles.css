@@ -846,3 +846,85 @@ button:disabled {
   width: auto;
   margin-top: 0;
 }
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid #54aeff66;
+  border-radius: 6px;
+  background: #ddf4ff;
+  color: #0969da;
+  font-size: 13px;
+}
+
+.update-banner[hidden] {
+  display: none;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.update-dismiss {
+  color: #57606a;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.local-download-options {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #d8dee4;
+}
+
+.local-download-options[hidden] {
+  display: none;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.inline-check input {
+  width: auto;
+  margin: 0;
+}
+
+.format-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.format-label {
+  color: #57606a;
+  font-weight: 600;
+}
+
+.format-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.format-option input {
+  width: auto;
+  margin: 0;
+}
