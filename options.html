@@ -11,6 +11,14 @@
       <h1>网页题目助手设置</h1>
       <p class="hint">可预设默认工作模式，并像 cc-switch 一样管理多套视觉 API 档案一键切换。API Key 仅保存在本机扩展存储中。</p>
 
+      <div id="update-banner" class="update-banner" hidden>
+        <span id="update-text"></span>
+        <div class="update-actions">
+          <button id="update-download" class="text-button" type="button">下载更新</button>
+          <button id="update-dismiss" class="text-button update-dismiss" type="button" aria-label="忽略此版本更新">×</button>
+        </div>
+      </div>
+
       <section class="options-card">
         <h2>默认工作模式</h2>
         <div class="mode-switcher" role="radiogroup" aria-label="默认工作模式">
@@ -22,6 +30,23 @@
             <input type="radio" name="default-mode" value="ai">
             <span>AI 视觉识别并逐题解答</span>
           </label>
+        </div>
+        <div id="local-auto-download-options" class="local-download-options" hidden>
+          <label class="inline-check">
+            <input id="auto-download-local" type="checkbox">
+            <span>不进入预览与微调页（截完直接自动下载）</span>
+          </label>
+          <div class="format-picker">
+            <span class="format-label">自动下载格式（可多选）：</span>
+            <label class="format-option">
+              <input id="format-png" type="checkbox" value="png" checked>
+              <span>合并 PNG</span>
+            </label>
+            <label class="format-option">
+              <input id="format-pdf" type="checkbox" value="pdf">
+              <span>A4 PDF</span>
+            </label>
+          </div>
         </div>
       </section>
 

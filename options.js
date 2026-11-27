@@ -13,6 +13,17 @@ const clearKeyButton = document.getElementById("clear-key");
 const cancelEditButton = document.getElementById("cancel-edit");
 const statusElement = document.getElementById("settings-status");
 const modeRadios = [...document.querySelectorAll('input[name="default-mode"]')];
+const localDownloadOptions = document.getElementById("local-auto-download-options");
+const autoDownloadLocalCheckbox = document.getElementById("auto-download-local");
+const formatPngCheckbox = document.getElementById("format-png");
+const formatPdfCheckbox = document.getElementById("format-pdf");
+const updateBanner = document.getElementById("update-banner");
+const updateText = document.getElementById("update-text");
+const updateDownloadButton = document.getElementById("update-download");
+const updateDismissButton = document.getElementById("update-dismiss");
+let pendingUpdate = null;
+let autoDownloadInLocal = false;
+let exportFormats = ["png"];
 
 let currentState = {
   profiles: [],
@@ -198,10 +209,31 @@ function renderModeSelection() {
   for (const radio of modeRadios) {
     radio.checked = radio.value === currentState.defaultWorkflowMode;
   }
+  if (localDownloadOptions) {
+    localDownloadOptions.hidden = currentState.defaultWorkflowMode !== "local";
+  }
+  if (autoDownloadLocalCheckbox) {
+    autoDownloadLocalCheckbox.checked = autoDownloadInLocal;
+  }
+  if (formatPngCheckbox) {
+    formatPngCheckbox.checked = exportFormats.includes("png");
+  }
+  if (formatPdfCheckbox) {
+    formatPdfCheckbox.checked = exportFormats.includes("pdf");
+  }
 }
 
 async function refreshState() {
-  currentState = await ApiProfiles.loadState();
+  const [state, extra] = await Promise.all([
+    ApiProfiles.loadState(),
+    chrome.storage.local.get(["autoDownloadInLocal", "exportFormats"])
+  ]);
+  currentState = state;
+  autoDownloadInLocal = Boolean(extra.autoDownloadInLocal);
+  if (Array.isArray(extra.exportFormats) && extra.exportFormats.length > 0) {
+    const valid = extra.exportFormats.filter((f) => f === "png" || f === "pdf");
+    exportFormats = valid.length > 0 ? valid : ["png"];
+  }
   renderModeSelection();
   renderProfiles();
 }
@@ -271,6 +303,7 @@ for (const radio of modeRadios) {
     try {
       await ApiProfiles.setDefaultWorkflowMode(radio.value);
       currentState.defaultWorkflowMode = radio.value;
+      renderModeSelection();
       setStatus(radio.value === "local"
         ? "默认模式已设为：本地自动框选并导出（无需 API）。"
         : "默认模式已设为：AI 视觉识别与逐题解答。");
@@ -280,9 +313,108 @@ for (const radio of modeRadios) {
   });
 }
 
+if (autoDownloadLocalCheckbox) {
+  autoDownloadLocalCheckbox.addEventListener("change", async () => {
+    autoDownloadInLocal = autoDownloadLocalCheckbox.checked;
+    try {
+      await chrome.storage.local.set({ autoDownloadInLocal });
+      setStatus(autoDownloadInLocal
+        ? "已开启：本地模式截完直接自动下载（不跳微调页）。"
+        : "已关闭直接自动下载，截完后将进入微调页。");
+    } catch {
+      setStatus("保存自动下载设置失败。", true);
+    }
+  });
+}
+
+for (const checkbox of [formatPngCheckbox, formatPdfCheckbox]) {
+  if (!checkbox) {
+    continue;
+  }
+  checkbox.addEventListener("change", async () => {
+    const next = [];
+    if (formatPngCheckbox?.checked) next.push("png");
+    if (formatPdfCheckbox?.checked) next.push("pdf");
+    if (next.length === 0) {
+      checkbox.checked = true;
+      setStatus("至少需要保留一种默认下载格式。", true);
+      return;
+    }
+    exportFormats = next;
+    try {
+      await chrome.storage.local.set({ exportFormats });
+      setStatus(`默认下载格式已更新：${exportFormats.map((f) => f.toUpperCase()).join(" + ")}。`);
+    } catch {
+      setStatus("保存下载格式失败。", true);
+    }
+  });
+}
+
+function isSafeGithubUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "https:" &&
+      (parsed.hostname === "github.com" || parsed.hostname.endsWith(".githubusercontent.com"));
+  } catch {
+    return false;
+  }
+}
+
+function compareVersions(left, right) {
+  const parse = (v) => String(v || "").trim().replace(/^v/i, "").split(".")
+    .map((p) => Number((/^\d+/.exec(p) || [0])[0]));
+  const a = parse(left);
+  const b = parse(right);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const diff = (a[i] || 0) - (b[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function checkUpdatesInOptions() {
+  if (!updateBanner || !chrome.runtime?.sendMessage) {
+    return;
+  }
+  const res = await chrome.runtime.sendMessage({ type: "CHECK_FOR_UPDATES" }).catch(() => null);
+  const info = res?.info;
+  const currentVersion = chrome.runtime.getManifest?.()?.version || "0.0.0";
+  if (!info?.latestVersion ||
+      !isSafeGithubUrl(info.downloadUrl) ||
+      info.dismissedVersion === info.latestVersion ||
+      compareVersions(info.latestVersion, currentVersion) <= 0) {
+    updateBanner.hidden = true;
+    return;
+  }
+  pendingUpdate = info;
+  updateText.textContent = `发现新版本 v${info.latestVersion}（当前 v${currentVersion}）`;
+  updateBanner.hidden = false;
+}
+
+if (updateDownloadButton) {
+  updateDownloadButton.addEventListener("click", () => {
+    if (pendingUpdate && isSafeGithubUrl(pendingUpdate.downloadUrl)) {
+      chrome.tabs.create({ url: pendingUpdate.downloadUrl, active: true });
+    }
+  });
+}
+
+if (updateDismissButton) {
+  updateDismissButton.addEventListener("click", async () => {
+    updateBanner.hidden = true;
+    if (pendingUpdate?.latestVersion) {
+      await chrome.runtime.sendMessage({
+        type: "DISMISS_UPDATE",
+        version: pendingUpdate.latestVersion
+      }).catch(() => {});
+    }
+  });
+}
+
 (async () => {
   populateProviderPresets();
   await refreshState();
+  checkUpdatesInOptions().catch(() => {});
   if (currentState.activeProfile) {
     startEditProfile(currentState.activeProfile);
   } else {
