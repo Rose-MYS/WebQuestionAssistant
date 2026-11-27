@@ -12,6 +12,13 @@
         <h1>网页题目助手</h1>
         <button id="open-settings" class="text-button" type="button">设置</button>
       </header>
+      <div id="update-banner" class="update-banner" hidden>
+        <span id="update-text"></span>
+        <div class="update-actions">
+          <button id="update-download" class="text-button" type="button">下载更新</button>
+          <button id="update-dismiss" class="text-button update-dismiss" type="button" aria-label="忽略此版本更新">×</button>
+        </div>
+      </div>
       <p class="hint">滚动采集当前网页长图，视觉识别并切分出题目截图；你确认后才会逐题上传和求解。</p>
       <button id="capture-page" class="secondary-button" type="button">截取整页长图</button>
       <button id="cancel-capture" class="secondary-button cancel-button" type="button" hidden>取消长截图</button>

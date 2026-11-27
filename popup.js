@@ -6,7 +6,14 @@ const cancelButton = document.getElementById("cancel-capture");
 const submitButton = document.getElementById("submit");
 const screenshotFigure = document.getElementById("screenshot-figure");
 const screenshotPreview = document.getElementById("screenshot-preview");
+const updateBanner = document.getElementById("update-banner");
+const updateText = document.getElementById("update-text");
+const updateDownloadButton = document.getElementById("update-download");
+const updateDismissButton = document.getElementById("update-dismiss");
+const UPDATE_REPO = "wrhllll/WebQuestionAssistant";
+const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 let settings;
+let pendingUpdate = null;
 let screenshotDataUrl = "";
 let screenshotId = "";
 let captureInProgress = false;
@@ -191,6 +198,124 @@ document.getElementById("open-settings").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
+function parseVersionParts(version) {
+  return String(version || "")
+    .trim()
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => {
+      const match = /^\d+/.exec(part);
+      return match ? Number(match[0]) : 0;
+    });
+}
+
+function compareVersions(left, right) {
+  const a = parseVersionParts(left);
+  const b = parseVersionParts(right);
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (a[index] || 0) - (b[index] || 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function isSafeGithubUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "https:" &&
+      (parsed.hostname === "github.com" || parsed.hostname.endsWith(".githubusercontent.com"));
+  } catch {
+    return false;
+  }
+}
+
+function showUpdateBanner(info, currentVersion) {
+  if (!info || !info.latestVersion || !isSafeGithubUrl(info.downloadUrl)) {
+    updateBanner.hidden = true;
+    return;
+  }
+  if (info.dismissedVersion === info.latestVersion ||
+      compareVersions(info.latestVersion, currentVersion) <= 0) {
+    updateBanner.hidden = true;
+    return;
+  }
+  pendingUpdate = info;
+  updateText.textContent = `发现新版本 v${info.latestVersion}（当前 v${currentVersion}）`;
+  updateBanner.hidden = false;
+}
+
+async function checkForUpdates() {
+  const currentVersion = chrome.runtime.getManifest()?.version || "0.0.0";
+  const saved = await chrome.storage.local.get(["updateCheck"]);
+  const cached = saved.updateCheck || {};
+  showUpdateBanner(cached, currentVersion);
+
+  if (cached.checkedAt && Date.now() - cached.checkedAt < UPDATE_CHECK_INTERVAL_MS) {
+    return;
+  }
+
+  let response;
+  try {
+    response = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+      headers: { "Accept": "application/vnd.github+json" },
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer"
+    });
+  } catch {
+    return;
+  }
+
+  const nextCache = {
+    ...cached,
+    checkedAt: Date.now()
+  };
+
+  if (response.ok) {
+    const release = await response.json().catch(() => null);
+    const latestVersion = String(release?.tag_name || "").replace(/^v/i, "").trim();
+    const zipAsset = Array.isArray(release?.assets)
+      ? release.assets.find((asset) =>
+          typeof asset?.name === "string" &&
+          asset.name.toLowerCase().endsWith(".zip") &&
+          isSafeGithubUrl(asset.browser_download_url)
+        )
+      : null;
+    const downloadUrl = zipAsset?.browser_download_url ||
+      (isSafeGithubUrl(release?.html_url) ? release.html_url : "");
+    if (latestVersion && downloadUrl) {
+      nextCache.latestVersion = latestVersion;
+      nextCache.downloadUrl = downloadUrl;
+    }
+  }
+
+  await chrome.storage.local.set({ updateCheck: nextCache }).catch(() => {});
+  showUpdateBanner(nextCache, currentVersion);
+}
+
+updateDownloadButton.addEventListener("click", () => {
+  if (pendingUpdate && isSafeGithubUrl(pendingUpdate.downloadUrl)) {
+    chrome.tabs.create({ url: pendingUpdate.downloadUrl, active: true });
+  }
+});
+
+updateDismissButton.addEventListener("click", async () => {
+  updateBanner.hidden = true;
+  if (!pendingUpdate?.latestVersion) {
+    return;
+  }
+  const saved = await chrome.storage.local.get(["updateCheck"]);
+  await chrome.storage.local.set({
+    updateCheck: {
+      ...(saved.updateCheck || {}),
+      dismissedVersion: pendingUpdate.latestVersion
+    }
+  }).catch(() => {});
+});
+
 chrome.storage.onChanged.addListener((_changes, areaName) => {
   if (areaName === "local") {
     loadSettings().catch(() => {});
@@ -198,4 +323,5 @@ chrome.storage.onChanged.addListener((_changes, areaName) => {
 });
 
 loadSettings().catch(() => setStatus("读取设置失败，请重新打开扩展。", true));
+checkForUpdates().catch(() => {});
 updateButtons();
