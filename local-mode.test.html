@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>Pending</title><link rel="stylesheet" href="styles.css"></head>
+<body class="results">
+  <main>
+    <p id="test-result" role="status">Running local capture tests…</p>
+    <header class="results-heading">
+      <div><h1>Test</h1><p id="result-status"></p></div>
+      <div class="results-actions">
+        <button id="open-settings"></button><button id="cancel-questions" hidden></button>
+        <button id="retry-answer" hidden></button>
+      </div>
+    </header>
+    <section id="questions-section" class="questions-section" hidden>
+      <h2 id="questions-title"></h2>
+      <div class="questions-layout">
+        <nav id="question-directory" hidden><div id="question-directory-list"></div></nav>
+        <div class="questions-content">
+          <p id="confirmation-hint" hidden></p>
+          <section id="crop-editor-panel" hidden>
+            <div class="crop-editor-heading"><div><h3>Edit</h3></div><button id="add-question-mode"></button></div>
+            <p id="crop-editor-mode" hidden></p>
+            <div id="crop-editor-viewport"><div id="crop-editor-stage">
+              <img id="crop-editor-image"><div id="crop-editor-overlay"></div>
+            </div></div>
+          </section>
+          <div id="questions-list"></div>
+          <button id="export-png" hidden>Export PNG</button><button id="export-pdf" hidden>Export PDF</button>
+          <button id="add-question" hidden></button><button id="recognize-again" hidden></button>
+          <button id="confirm-questions" hidden></button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const source = document.createElement("canvas");
+    source.width = 100;
+    source.height = 100;
+    const context = source.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, 100, 100);
+    window.testRecord = {
+      id: "local-test",
+      status: "captured",
+      imageData: source.toDataURL("image/png"),
+      width: 100,
+      height: 100,
+      tiles: 1,
+      localDetections: [
+        { number: "1", x: 10, y: 12, width: 30, height: 30, stemRect: { x: 10, y: 12, width: 30, height: 30 } },
+        { number: "2", x: 60, y: 62, width: 30, height: 30, stemRect: { x: 60, y: 62, width: 30, height: 30 } }
+      ],
+      questions: []
+    };
+    window.apiCalls = 0;
+    window.exportCalls = [];
+    window.chrome = {
+      storage: { local: { async get() { return {}; } } },
+      permissions: { async contains() { return false; }, async request() { return false; } },
+      runtime: { openOptionsPage() {} }
+    };
+    window.ResultStore = {
+      async get() { return structuredClone(window.testRecord); },
+      async update(id, changes) {
+        if (id !== window.testRecord.id) throw new Error("wrong result id");
+        Object.assign(window.testRecord, structuredClone(changes));
+      }
+    };
+    window.fetch = async () => {
+      window.apiCalls += 1;
+      throw new Error("local mode must not call fetch");
+    };
+    window.QuestionExporter = {
+      async exportMergedPng(questions) {
+        window.exportCalls.push({ format: "png", questions: structuredClone(questions) });
+        return { filename: "local.png", count: questions.length };
+      },
+      async exportA4Pdf(questions) {
+        window.exportCalls.push({ format: "pdf", questions: structuredClone(questions) });
+        return { filename: "local.pdf", count: questions.length, pages: 1 };
+      }
+    };
+  </script>
+  <script src="results.js?id=local-test&mode=local"></script>
+  <script>
+    async function waitFor(test, label) {
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        if (test()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`Timed out: ${label}`);
+    }
+
+    (async () => {
+      await waitFor(() => window.testRecord.status === "awaiting_confirmation" &&
+        window.testRecord.questions.length === 2, "local segmentation");
+      if (window.testRecord.mode !== "local" ||
+          window.testRecord.questions.map((question) => question.number).join(",") !== "1,2" ||
+          window.apiCalls !== 0 ||
+          document.getElementById("export-png").hidden) {
+        throw new Error("local segmentation changed mode, lost crops or called the API");
+      }
+      await document.getElementById("crop-editor-image").decode();
+      document.getElementById("export-png").click();
+      await waitFor(() => window.exportCalls.length === 1, "local export");
+      if (window.exportCalls[0].format !== "png" ||
+          window.exportCalls[0].questions.length !== 2 ||
+          window.apiCalls !== 0) {
+        throw new Error("local export did not use both crops without API requests");
+      }
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "local mode makes reviewed crops and exports without network/API calls";
+      document.title = "PASS";
+      document.getElementById("test-result").textContent = "PASS";
+    })().catch((error) => {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.getElementById("test-result").textContent = `FAIL: ${error.message}`;
+    });
+  </script>
+</body>
+</html>

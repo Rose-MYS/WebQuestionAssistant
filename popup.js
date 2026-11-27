@@ -22,6 +22,8 @@ captureButton.addEventListener("click", async () => {
   setStatus("正在滚动采集并拼接整页截图…");
 
   try {
+    const saved = await chrome.storage.local.get(["defaultWorkflowMode"]);
+    const workflowMode = saved.defaultWorkflowMode === "local" ? "local" : "ai";
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (typeof tab?.id !== "number" || typeof tab.windowId !== "number") {
       throw new Error("无法取得当前标签页。");
@@ -40,7 +42,8 @@ captureButton.addEventListener("click", async () => {
     }
 
     const resultUrl = chrome.runtime.getURL("results.html") +
-      `?id=${encodeURIComponent(result.resultId)}`;
+      `?id=${encodeURIComponent(result.resultId)}` +
+      (workflowMode === "local" ? "&mode=local" : "");
     await chrome.tabs.create({ url: resultUrl, active: true });
   } catch (error) {
     setStatus(error?.message || "长截图失败。受限页面可能不支持滚动或截图。", true);

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "网页题目助手",
-  "version": "2.0.0",
-  "description": "手动编辑题目截图并逐题求解，支持 LaTeX 公式。",
+  "version": "2.1.0",
+  "description": "网页题目自动框选、AI 识别解答与本地 PNG/PDF 导出。",
   "permissions": [
     "activeTab",
     "scripting",

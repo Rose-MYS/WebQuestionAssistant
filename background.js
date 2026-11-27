@@ -1,4 +1,4 @@
-importScripts("result-store.js");
+importScripts("result-store.js", "local-question-detector.js");
 
 const MAX_STITCHED_WIDTH = 16000;
 const MAX_STITCHED_HEIGHT = 30000;
@@ -15,6 +15,11 @@ function preparePageForCapture() {
     throw new Error("当前页面没有可滚动的文档。");
   }
 
+  const rootOverflowX = getComputedStyle(root).overflowX;
+  const bodyOverflowX = body ? getComputedStyle(body).overflowX : "";
+  const canScrollX = !["hidden", "clip"].includes(rootOverflowX) &&
+    !["hidden", "clip"].includes(bodyOverflowX);
+  const rawPageWidth = Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth);
   const state = {
     pageUrl: location.href,
     scrollX: window.scrollX,
@@ -23,7 +28,7 @@ function preparePageForCapture() {
     bodyScrollBehavior: body?.style.scrollBehavior || "",
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
-    pageWidth: Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth),
+    pageWidth: canScrollX ? rawPageWidth : window.innerWidth,
     pageHeight: Math.max(root.scrollHeight, body?.scrollHeight || 0, root.clientHeight)
   };
   root.style.scrollBehavior = "auto";
@@ -42,13 +47,18 @@ async function scrollPageTo(x, y, expectedUrl, verifyUrl) {
   await new Promise((resolve) => setTimeout(resolve, 140));
   const root = document.documentElement;
   const body = document.body;
+  const rootOverflowX = getComputedStyle(root).overflowX;
+  const bodyOverflowX = body ? getComputedStyle(body).overflowX : "";
+  const canScrollX = !["hidden", "clip"].includes(rootOverflowX) &&
+    !["hidden", "clip"].includes(bodyOverflowX);
+  const rawPageWidth = Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth);
   return {
     pageUrl: location.href,
     scrollX: window.scrollX,
     scrollY: window.scrollY,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
-    pageWidth: Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth),
+    pageWidth: canScrollX ? rawPageWidth : window.innerWidth,
     pageHeight: Math.max(root.scrollHeight, body?.scrollHeight || 0, root.clientHeight)
   };
 }
@@ -56,13 +66,18 @@ async function scrollPageTo(x, y, expectedUrl, verifyUrl) {
 function readPageMetrics() {
   const root = document.documentElement;
   const body = document.body;
+  const rootOverflowX = getComputedStyle(root).overflowX;
+  const bodyOverflowX = body ? getComputedStyle(body).overflowX : "";
+  const canScrollX = !["hidden", "clip"].includes(rootOverflowX) &&
+    !["hidden", "clip"].includes(bodyOverflowX);
+  const rawPageWidth = Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth);
   return {
     pageUrl: location.href,
     scrollX: window.scrollX,
     scrollY: window.scrollY,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
-    pageWidth: Math.max(root.scrollWidth, body?.scrollWidth || 0, root.clientWidth),
+    pageWidth: canScrollX ? rawPageWidth : window.innerWidth,
     pageHeight: Math.max(root.scrollHeight, body?.scrollHeight || 0, root.clientHeight)
   };
 }
@@ -231,6 +246,22 @@ async function captureFullPage(tabId, windowId, task) {
     const overlapY = Math.min(80, Math.max(8, Math.floor(viewportHeight * 0.08)));
     const stepX = Math.max(1, viewportWidth - overlapX * 2);
     const stepY = Math.max(1, viewportHeight - overlapY * 2);
+    let rawLocalRegions = [];
+    let localDetectionError = "";
+    try {
+      const detected = await runPageScript(
+        tabId,
+        documentId,
+        pageState.pageUrl,
+        detectLocalQuestionRegions
+      );
+      if (Array.isArray(detected?.result?.regions)) {
+        rawLocalRegions = detected.result.regions;
+      }
+    } catch (error) {
+      rawLocalRegions = [];
+      localDetectionError = error?.message || "本地检测暂不可用。";
+    }
     let lastCaptureTime = 0;
     let currentY = 0;
     let coveredHeight = 0;
@@ -404,12 +435,33 @@ async function captureFullPage(tabId, windowId, task) {
       cancelled = true;
       throw new Error("长截图已取消。");
     }
+    const scaleRect = (rect) => {
+      const x = Math.max(0, Math.min(canvas.width - 1, Math.round(rect.x)));
+      const y = Math.max(0, Math.min(canvas.height - 1, Math.round(rect.y)));
+      const width = Math.min(canvas.width - x, Math.round(rect.width));
+      const height = Math.min(canvas.height - y, Math.round(rect.height));
+      return { x, y, width, height };
+    };
+    const localDetections = rawLocalRegions
+      .map((region) => {
+        const stemRect = scaleRect(region.stemRect || region);
+        const fullRect = scaleRect(region.fullRect || region);
+        return {
+          number: region.number,
+          ...stemRect,
+          stemRect,
+          fullRect
+        };
+      })
+      .filter((region) => region.width >= 24 && region.height >= 24);
     const resultId = await ResultStore.create({
       status: "captured",
       imageData: dataUrl,
       width: canvas.width,
       height: canvas.height,
       tiles,
+      localDetections,
+      localDetectionError,
       createdAt: Date.now()
     });
     captureResult = {
@@ -418,7 +470,9 @@ async function captureFullPage(tabId, windowId, task) {
       dataUrl,
       width: canvas.width,
       height: canvas.height,
-      tiles
+      tiles,
+      localDetections,
+      localDetectionError
     };
   } catch (error) {
     cancelled = cancelled || task.cancelled;
