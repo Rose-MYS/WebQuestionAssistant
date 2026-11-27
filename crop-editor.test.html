@@ -8,16 +8,24 @@
       <button id="open-settings"></button><button id="cancel-questions" hidden></button><button id="retry-answer" hidden></button>
     </div></header>
     <section id="questions-section" class="questions-section" hidden>
-      <h2 id="questions-title"></h2><p id="confirmation-hint" hidden></p>
-      <section id="crop-editor-panel" class="crop-editor-panel" hidden>
-        <div class="crop-editor-heading"><div><h3>Edit</h3><p class="hint">Drag</p></div><button id="add-question-mode"></button></div>
-        <p id="crop-editor-mode" hidden></p>
-        <div id="crop-editor-viewport" class="crop-editor-viewport"><div id="crop-editor-stage" class="crop-editor-stage">
-          <img id="crop-editor-image"><div id="crop-editor-overlay" class="crop-editor-overlay"></div>
-        </div></div>
-      </section>
-      <div id="questions-list"></div>
-      <div class="button-row question-actions"><button id="recognize-again" hidden></button><button id="confirm-questions" hidden>Confirm</button></div>
+      <h2 id="questions-title"></h2>
+      <div class="questions-layout">
+        <nav id="question-directory" class="question-directory" aria-label="题目目录" hidden>
+          <h3>题目目录</h3><div id="question-directory-list" class="question-directory-list"></div>
+        </nav>
+        <div class="questions-content">
+          <p id="confirmation-hint" hidden></p>
+          <section id="crop-editor-panel" class="crop-editor-panel" hidden>
+            <div class="crop-editor-heading"><div><h3>Edit</h3><p class="hint">Drag</p></div><button id="add-question-mode"></button></div>
+            <p id="crop-editor-mode" hidden></p>
+            <div id="crop-editor-viewport" class="crop-editor-viewport"><div id="crop-editor-stage" class="crop-editor-stage">
+              <img id="crop-editor-image"><div id="crop-editor-overlay" class="crop-editor-overlay"></div>
+            </div></div>
+          </section>
+          <div id="questions-list"></div>
+          <div class="button-row question-actions"><button id="add-question" hidden>新增题目</button><button id="recognize-again" hidden></button><button id="confirm-questions" hidden>Confirm</button></div>
+        </div>
+      </div>
     </section>
     <section id="latex-render-tests"></section>
     <footer class="ai-disclaimer">解答由AI生成，请注意甄别。</footer>
@@ -46,8 +54,14 @@
         { number: "1", bbox: [100, 100, 450, 450] },
         { number: "3", bbox: [0, 0, 200, 200] }
       ] }),
-      "$x^2$", "答案三", "新增题答案"
+      "$x^2$", "答案三", "新增题答案", "重新框选后的答案", "新题解答"
     ];
+    window.confirmCalls = [];
+    window.confirmAnswers = [];
+    window.confirm = (message) => {
+      window.confirmCalls.push(message);
+      return window.confirmAnswers.length ? window.confirmAnswers.shift() : true;
+    };
     window.chrome = {
       storage: { local: { get: async () => ({
         endpoint: "https://api.example.test/chat/completions",
@@ -123,6 +137,15 @@
       if (window.testRecord.questions.map((item) => item.number).join(",") !== "1,2,3") {
         throw new Error("initial question boxes were not ordered");
       }
+      if (document.querySelectorAll(".question-directory-link").length !== 3 ||
+          [...document.querySelectorAll(".question-details")].some((details) => !details.hidden) ||
+          document.querySelectorAll(".question-number-input").length !== 3) {
+        throw new Error("question directory or default-collapsed cards were not rendered");
+      }
+      document.querySelector('.question-directory-link[data-question-id="q1"]').click();
+      if (document.querySelector('.question-card[data-question-id="q1"] .question-details').hidden) {
+        throw new Error("directory navigation did not expand its question");
+      }
       const initialQ1 = { ...question(1).crop };
       document.querySelector('.question-card[data-question-id="q1"]').click();
       let box = [...document.querySelectorAll(".crop-edit-box")]
@@ -186,12 +209,15 @@
         throw new Error(`manual crop did not capture the selected white region: ${addedPixel}`);
       }
 
-      document.querySelector('.question-card[data-question-id="q2"] .remove-question').click();
+      document.querySelector('.question-card[data-question-id="q2"] .question-delete').click();
       await waitFor(() => !window.testRecord.questions.some((item) => item.id === "q2"), "question deletion");
+      if (window.confirmCalls.length !== 1 || !window.confirmCalls[0].includes("重新编排题号")) {
+        throw new Error("question deletion did not request confirmation");
+      }
       if (window.apiCalls.length !== 1) throw new Error("a crop was uploaded before final confirmation");
       const finalQuestions = structuredClone(window.testRecord.questions);
-      if (finalQuestions.map((item) => item.number).join(",") !== "1,3,4") {
-        throw new Error("edited question numbers/order changed unexpectedly");
+      if (finalQuestions.map((item) => item.number).join(",") !== "1,2,3") {
+        throw new Error("question numbers were not compacted after deletion");
       }
       document.getElementById("confirm-questions").click();
       await waitFor(() => window.testRecord.status === "complete", "confirmed sequential answers");
@@ -205,12 +231,67 @@
       }
       const cards = [...document.querySelectorAll(".question-card")];
       if (cards.map((card) => card.querySelector("h3").textContent).join("|") !==
-          "第 1 题|第 3 题|第 4 题" ||
+          "第 1 题|第 2 题|第 3 题" ||
           cards.some((card) => !card.querySelector(".answer-content"))) {
         throw new Error("final answers were not bound to the retained numbered crop cards");
       }
       if (document.querySelector(".results-image, #result-image")) {
         throw new Error("full-page screenshot is displayed in the final results interface");
+      }
+      const recropButton = document.querySelector(
+        '.question-card[data-question-id="q1"] .recrop-question'
+      );
+      if (!recropButton) throw new Error("solved question has no reselect action");
+      await waitFor(() => !recropButton.disabled, "recrop action enabled");
+      recropButton.click();
+      await waitFor(() => !document.getElementById("crop-editor-panel").hidden &&
+        document.getElementById("crop-editor-mode").textContent.includes("重新框选模式"),
+      "question recrop mode");
+      const recropOverlay = document.getElementById("crop-editor-overlay");
+      const recropStart = clientPoint(2, 2);
+      const recropEnd = clientPoint(40, 40);
+      pointer(recropOverlay, "pointerdown", recropStart, 11);
+      pointer(recropOverlay, "pointermove", recropEnd, 11);
+      pointer(recropOverlay, "pointerup", recropEnd, 11);
+      await waitFor(() => question(1).answer === "重新框选后的答案" &&
+        question(1).status === "complete", "recropped question answer");
+      if (window.apiCalls.length !== 5) throw new Error("recropped question was not re-solved exactly once");
+      const recropImage = window.apiCalls[4].messages[0].content
+        .find((part) => part.type === "image_url")?.image_url?.url;
+      if (recropImage !== question(1).imageData) {
+        throw new Error("re-solve did not upload the newly selected crop");
+      }
+      await waitFor(() => !document.getElementById("add-question").disabled,
+        "post-solve add action enabled");
+      document.getElementById("add-question").click();
+      await waitFor(() => document.getElementById("crop-editor-mode").textContent.includes("新增模式"),
+        "post-solve add-question mode");
+      const newQuestionStart = clientPoint(5, 60);
+      const newQuestionEnd = clientPoint(40, 95);
+      pointer(recropOverlay, "pointerdown", newQuestionStart, 12);
+      pointer(recropOverlay, "pointermove", newQuestionEnd, 12);
+      pointer(recropOverlay, "pointerup", newQuestionEnd, 12);
+      await waitFor(() => question(4)?.answer === "新题解答" &&
+        question(4)?.status === "complete", "new post-solve question answer");
+      if (window.apiCalls.length !== 6) throw new Error("new question was not solved exactly once");
+      const newQuestionImage = window.apiCalls[5].messages[0].content
+        .find((part) => part.type === "image_url")?.image_url?.url;
+      if (newQuestionImage !== question(4).imageData) {
+        throw new Error("new question solution did not use the freshly selected crop");
+      }
+      document.querySelector('.question-card[data-question-id="q3"] .question-delete').click();
+      await waitFor(() => !window.testRecord.questions.some((item) => item.id === "q3"),
+        "post-solve question deletion");
+      const renumbered = window.testRecord.questions;
+      if (renumbered.map((item) => item.number).join(",") !== "1,2,3" ||
+          [...document.querySelectorAll(".question-directory-link")].map((item) => item.textContent).join("|") !==
+            "第 1 题|第 2 题|第 3 题") {
+        throw new Error("post-solve deletion did not update card and directory numbering");
+      }
+      window.confirmAnswers.push(false);
+      document.querySelector('.question-card[data-question-id="q1"] .question-delete').click();
+      if (window.testRecord.questions.length !== 3 || window.confirmCalls.length !== 3) {
+        throw new Error("declined deletion was not cancelled");
       }
       if (document.querySelector(".ai-disclaimer")?.textContent !== "解答由AI生成，请注意甄别。") {
         throw new Error("AI-generated answer disclaimer is missing at the end of the page");
@@ -239,7 +320,7 @@
         throw new Error("display/nested boxed formula structure is incorrect");
       }
       document.body.dataset.testResult = "PASS";
-      document.body.dataset.testDetails = "crop editing and confirmation gates; results page, AI notice, inline/display/nested boxed MathML";
+      document.body.dataset.testDetails = "question directory, collapse, confirmed deletion and renumbering; crop editing and post-solve add/recrop; results and MathML";
       document.title = "PASS";
       document.getElementById("test-result").textContent = `通过：${document.body.dataset.testDetails}`;
     })().catch((error) => {

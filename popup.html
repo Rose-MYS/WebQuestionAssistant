@@ -12,19 +12,9 @@
         <h1>网页题目助手</h1>
         <button id="open-settings" class="text-button" type="button">设置</button>
       </header>
-      <p class="hint">滚动采集当前网页长图，视觉识别并切分出题目截图；你确认后才会逐题上传和求解。</p>
-      <button id="capture-page" class="secondary-button" type="button">截取整页长图</button>
-      <button id="cancel-capture" class="secondary-button cancel-button" type="button" hidden>取消长截图</button>
-      <figure id="screenshot-figure" class="screenshot-figure" hidden>
-        <img id="screenshot-preview" alt="当前网页长截图预览">
-        <figcaption>已拼接当前网页可滚动区域；可在预览框内查看长图，或重新截取。</figcaption>
-      </figure>
-      <label for="instruction">补充说明（可选）</label>
-      <textarea id="instruction" rows="3" placeholder="例如：请重点解答页面右侧的第 2 题。"></textarea>
-      <button id="submit" class="primary-button" type="button" disabled>识别并切分题目截图</button>
+      <button id="capture-page" class="primary-button capture-primary" type="button">截取网页长图</button>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>
-    <script src="result-store.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
