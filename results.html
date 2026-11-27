@@ -46,6 +46,8 @@
             </section>
             <div id="questions-list"></div>
             <div class="button-row question-actions">
+              <button id="export-png" class="secondary-button" type="button" hidden>导出合并 PNG</button>
+              <button id="export-pdf" class="secondary-button" type="button" hidden>导出 A4 PDF</button>
               <button id="add-question" class="secondary-button" type="button" hidden>新增题目</button>
               <button id="recognize-again" class="secondary-button" type="button" hidden>重新识别</button>
               <button id="confirm-questions" class="primary-button" type="button" hidden>确认并逐题求解</button>
@@ -56,6 +58,8 @@
       <footer class="ai-disclaimer">解答由AI生成，请注意甄别。</footer>
     </main>
     <script src="result-store.js"></script>
+    <script src="api-profiles.js"></script>
+    <script src="exporter.js"></script>
     <script src="answer-renderer.js"></script>
     <script src="results.js"></script>
   </body>

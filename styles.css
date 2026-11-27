@@ -684,3 +684,165 @@ button:disabled {
   justify-content: flex-start;
   margin-top: 14px;
 }
+
+.results-answer .answer-content table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+}
+
+.results-answer .answer-content th,
+.results-answer .answer-content td {
+  border: 1px solid #d0d7de;
+  padding: 6px 9px;
+  text-align: left;
+}
+
+.results-answer .answer-content th {
+  background: #eaeef2;
+}
+
+.math-boxed {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  padding: 1px 4px;
+}
+
+.options-card {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+  background: #fff;
+}
+
+.options-card h2 {
+  margin-top: 0;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.section-heading h2 {
+  margin: 0;
+}
+
+.options select {
+  width: 100%;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: inherit;
+  background: #fff;
+  font: inherit;
+}
+
+.mode-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mode-option input {
+  width: auto;
+  margin: 0;
+}
+
+.active-profile-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #57606a;
+  overflow-wrap: anywhere;
+}
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.profile-card.is-active {
+  border-color: #0969da;
+  background: #f0f7ff;
+}
+
+.profile-info {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.profile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #0969da;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.profile-meta {
+  margin: 4px 0 2px;
+  font-size: 13px;
+  color: #24292f;
+}
+
+.profile-endpoint {
+  margin: 0;
+  font-size: 12px;
+  color: #57606a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.export-actions {
+  flex-wrap: wrap;
+}
+
+.top-export-button {
+  width: auto;
+  margin-top: 0;
+}

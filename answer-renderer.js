@@ -201,11 +201,23 @@ var AnswerRenderer = (() => {
     }
 
     command(name) {
+      if (name === "begin") {
+        return this.environment(this.rawGroup().trim());
+      }
       if (name === "boxed") {
         const boxed = mathElement("menclose");
         boxed.setAttribute("notation", "box");
+        boxed.classList.add("math-boxed");
         boxed.append(this.argument());
         return boxed;
+      }
+      if (name === "binom" || name === "dbinom" || name === "tbinom") {
+        const row = mathElement("mrow");
+        const fraction = mathElement("mfrac");
+        fraction.setAttribute("linethickness", "0");
+        fraction.append(this.argument(), this.argument());
+        row.append(mathElement("mo", "("), fraction, mathElement("mo", ")"));
+        return row;
       }
       if (name === "frac" || name === "dfrac" || name === "tfrac") {
         const fraction = mathElement("mfrac");
@@ -287,6 +299,80 @@ var AnswerRenderer = (() => {
       return mathElement("mtext", `\\${name}`);
     }
 
+    environment(envName) {
+      if (envName === "array" && this.peek() === "{") {
+        this.rawGroup();
+      }
+      const table = mathElement("mtable");
+      const rows = [[]];
+      let cellTokens = [];
+      let depth = 0;
+      while (this.index < this.tokens.length) {
+        const token = this.take();
+        if (token === "\\begin") {
+          depth += 1;
+          cellTokens.push(token);
+          continue;
+        }
+        if (token === "\\end") {
+          if (depth === 0) {
+            this.rawGroup();
+            break;
+          }
+          depth -= 1;
+          cellTokens.push(token);
+          continue;
+        }
+        if (depth === 0 && token === "&") {
+          rows[rows.length - 1].push(cellTokens.join(""));
+          cellTokens = [];
+          continue;
+        }
+        if (depth === 0 && token === "\\\\") {
+          rows[rows.length - 1].push(cellTokens.join(""));
+          cellTokens = [];
+          rows.push([]);
+          continue;
+        }
+        cellTokens.push(token);
+      }
+      if (cellTokens.length > 0 || rows[rows.length - 1].length > 0) {
+        rows[rows.length - 1].push(cellTokens.join(""));
+      }
+      for (const cells of rows) {
+        if (cells.length === 1 && !cells[0].trim()) {
+          continue;
+        }
+        const tr = mathElement("mtr");
+        for (const cell of cells) {
+          const td = mathElement("mtd");
+          td.append(new LatexParser(cell).parse());
+          tr.append(td);
+        }
+        table.append(tr);
+      }
+      const fences = {
+        pmatrix: ["(", ")"],
+        bmatrix: ["[", "]"],
+        Bmatrix: ["{", "}"],
+        vmatrix: ["|", "|"],
+        Vmatrix: ["‖", "‖"],
+        cases: ["{", ""]
+      }[envName];
+      if (!fences) {
+        return table;
+      }
+      const wrapper = mathElement("mrow");
+      if (fences[0]) {
+        wrapper.append(mathElement("mo", fences[0]));
+      }
+      wrapper.append(table);
+      if (fences[1]) {
+        wrapper.append(mathElement("mo", fences[1]));
+      }
+      return wrapper;
+    }
+
     sequenceUntil(endToken) {
       const row = mathElement("mrow");
       while (this.index < this.tokens.length && this.peek() !== endToken) {
@@ -342,8 +428,19 @@ var AnswerRenderer = (() => {
             marker === "$" ? "$" :
               marker === "`" ? "`" : marker;
       const contentStart = start + marker.length;
+      if ((marker === "_" || marker === "__") &&
+          start > 0 && /[A-Za-z0-9]/.test(text[start - 1])) {
+        container.append(document.createTextNode(marker));
+        position = contentStart;
+        markerPattern.lastIndex = position;
+        continue;
+      }
       const end = findClosing(text, closing, contentStart);
-      if (end < 0 || end === contentStart) {
+      const invalidWordUnderscore = (marker === "_" || marker === "__") &&
+        end >= 0 && /[A-Za-z0-9]/.test(text[end + closing.length] || "");
+      const invalidCurrencyDollar = marker === "$" &&
+        end > contentStart && /\s/.test(text[end - 1]);
+      if (end < 0 || end === contentStart || invalidWordUnderscore || invalidCurrencyDollar) {
         container.append(document.createTextNode(marker));
         position = contentStart;
         markerPattern.lastIndex = position;
@@ -366,6 +463,14 @@ var AnswerRenderer = (() => {
     if (position < text.length) {
       container.append(document.createTextNode(text.slice(position)));
     }
+  }
+
+  function parseTableRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  }
+
+  function isTableSeparator(line) {
+    return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line) && line.includes("-");
   }
 
   function isBlockStart(line) {
@@ -471,6 +576,35 @@ var AnswerRenderer = (() => {
           quote.append(paragraph);
         }
         target.append(quote);
+        continue;
+      }
+
+      if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+        const headers = parseTableRow(line);
+        index += 2;
+        const table = element("table");
+        const thead = element("thead");
+        const headRow = element("tr");
+        for (const headerText of headers) {
+          const th = element("th");
+          renderInline(th, headerText);
+          headRow.append(th);
+        }
+        thead.append(headRow);
+        table.append(thead);
+        const tbody = element("tbody");
+        while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+          const cells = parseTableRow(lines[index++]);
+          const tr = element("tr");
+          for (let col = 0; col < headers.length; col += 1) {
+            const td = element("td");
+            renderInline(td, cells[col] || "");
+            tr.append(td);
+          }
+          tbody.append(tr);
+        }
+        table.append(tbody);
+        target.append(table);
         continue;
       }
 

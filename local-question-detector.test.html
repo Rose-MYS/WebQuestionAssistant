@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Pending</title>
+  <style>
+    main { display: grid; gap: 12px; }
+    .question-item { width: 420px; min-height: 180px; padding: 10px; border: 1px solid; }
+    .answer-box { display: block; width: 380px; height: 70px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <p id="test-result" role="status">Running local detector tests…</p>
+  <main>
+    <article class="question-item"><div>第 1 题 计算下列表达式并写出过程。</div><textarea class="answer-box"></textarea></article>
+    <article class="question-item"><div>第 2 题 求出方程的解并说明理由。</div><textarea class="answer-box"></textarea></article>
+  </main>
+  <script src="local-question-detector.js"></script>
+  <script>
+    try {
+      const result = detectLocalQuestionRegions();
+      if (result.regions.length !== 2 ||
+          result.regions.map((region) => region.number).join(",") !== "1,2" ||
+          result.regions.some((region) =>
+            region.stemRect.height >= region.fullRect.height ||
+            region.stemRect.x < 0 || region.stemRect.y < 0)) {
+        throw new Error(`unexpected detected question regions: ${JSON.stringify(result.regions)}`);
+      }
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "semantic question detection, numbering and answer-area trimming";
+      document.title = "PASS";
+      document.getElementById("test-result").textContent = "PASS";
+    } catch (error) {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.getElementById("test-result").textContent = `FAIL: ${error.message}`;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Pending</title></head>
+<body>
+  <p id="test-result" role="status">Running API profile tests…</p>
+  <script>
+    const stored = {
+      endpoint: "https://legacy.example.test/v1/chat/completions",
+      model: "legacy-vision",
+      apiKey: "legacy-key"
+    };
+    window.chrome = {
+      storage: {
+        local: {
+          async get(keys) {
+            return Object.fromEntries(keys.filter((key) => key in stored)
+              .map((key) => [key, structuredClone(stored[key])]));
+          },
+          async set(values) {
+            Object.assign(stored, structuredClone(values));
+          }
+        }
+      }
+    };
+  </script>
+  <script src="api-profiles.js"></script>
+  <script>
+    (async () => {
+      const state = await ApiProfiles.loadState();
+      if (state.defaultWorkflowMode !== "ai" || state.profiles.length !== 1 ||
+          state.activeProfile.apiKey !== "legacy-key") {
+        throw new Error("legacy API settings did not migrate with the AI default");
+      }
+      const migrated = state.activeProfile;
+      const updated = await ApiProfiles.saveProfile({
+        id: migrated.id,
+        name: "Updated",
+        providerId: "custom",
+        endpoint: "https://legacy.example.test/v1",
+        model: "vision-v2",
+        apiKey: ""
+      });
+      if (updated.profile.apiKey !== "legacy-key" ||
+          updated.profile.endpoint !== "https://legacy.example.test/v1/chat/completions") {
+        throw new Error("editing a profile did not preserve its key or normalize its endpoint");
+      }
+      const additional = await ApiProfiles.saveProfile({
+        name: "Secondary",
+        providerId: "custom",
+        endpoint: "https://secondary.example.test/chat/completions",
+        model: "vision-model",
+        apiKey: "secondary-key"
+      }, { activate: false });
+      if (additional.activeProfileId !== migrated.id ||
+          additional.profiles.length !== 2) {
+        throw new Error("save-only created a profile but unexpectedly switched the active profile");
+      }
+      await ApiProfiles.setActiveProfile(additional.profile.id);
+      const mode = await ApiProfiles.setDefaultWorkflowMode("local");
+      const active = await ApiProfiles.loadState();
+      if (mode !== "local" || active.defaultWorkflowMode !== "local" ||
+          active.activeProfileId !== additional.profile.id) {
+        throw new Error("active-profile or local-mode settings did not persist");
+      }
+      await ApiProfiles.deleteProfile(additional.profile.id);
+      const afterDelete = await ApiProfiles.loadState();
+      if (afterDelete.activeProfileId !== migrated.id || afterDelete.profiles.length !== 1) {
+        throw new Error("deleting the active profile did not select the remaining profile");
+      }
+      let insecureRejected = false;
+      try {
+        ApiProfiles.normalizeAndValidateEndpoint("http://api.example.test");
+      } catch {
+        insecureRejected = true;
+      }
+      if (!insecureRejected) throw new Error("non-local HTTP endpoints must be rejected");
+      let responsesRejected = false;
+      try {
+        ApiProfiles.normalizeAndValidateEndpoint("https://api.example.test/v1/responses");
+      } catch {
+        responsesRejected = true;
+      }
+      if (!responsesRejected) throw new Error("Responses endpoints incompatible with chat payloads must be rejected");
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "legacy migration, endpoint validation, profile persistence, API-key retention and mode selection";
+      document.title = "PASS";
+      document.getElementById("test-result").textContent = "PASS";
+    })().catch((error) => {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.getElementById("test-result").textContent = `FAIL: ${error.message}`;
+    });
+  </script>
+</body>
+</html>

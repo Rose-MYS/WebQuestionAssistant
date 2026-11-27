@@ -8,25 +8,67 @@
   </head>
   <body class="options">
     <main>
-      <h1>API 设置</h1>
-      <p class="hint">使用兼容 OpenAI Chat Completions 图像消息格式的服务。API Key 保存在此浏览器的扩展本地存储中。</p>
-      <form id="settings-form">
-        <label for="endpoint">API 地址</label>
-        <input id="endpoint" name="endpoint" type="url" required
-          placeholder="https://api.deepseek.com/chat/completions">
-        <label for="model">视觉模型名称</label>
-        <input id="model" name="model" type="text" required placeholder="填写服务商提供的视觉模型名称">
-        <p class="hint">请确认该服务和模型明确支持图像输入。文本模型不能处理截图；DeepSeek 兼容服务之间的视觉能力可能不同。</p>
-        <label for="api-key">API Key</label>
-        <input id="api-key" name="apiKey" type="password" autocomplete="off"
-          placeholder="输入 API Key；留空则保留已保存的 Key">
-        <div class="button-row">
-          <button class="primary-button" type="submit">保存设置</button>
-          <button id="clear-key" class="secondary-button" type="button">清除 API Key</button>
+      <h1>网页题目助手设置</h1>
+      <p class="hint">可预设默认工作模式，并像 cc-switch 一样管理多套视觉 API 档案一键切换。API Key 仅保存在本机扩展存储中。</p>
+
+      <section class="options-card">
+        <h2>默认工作模式</h2>
+        <div class="mode-switcher" role="radiogroup" aria-label="默认工作模式">
+          <label class="mode-option">
+            <input type="radio" name="default-mode" value="local">
+            <span>本地自动框选并导出 PNG / PDF（无需 API）</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="default-mode" value="ai">
+            <span>AI 视觉识别并逐题解答</span>
+          </label>
         </div>
-      </form>
+      </section>
+
+      <section class="options-card">
+        <div class="section-heading">
+          <h2>API 配置档案</h2>
+          <button id="new-profile" class="secondary-button" type="button">+ 新增配置</button>
+        </div>
+        <div id="profile-list" class="profile-list"></div>
+      </section>
+
+      <section class="options-card">
+        <h2 id="editor-title">新增 API 配置</h2>
+        <form id="settings-form">
+          <label for="provider-preset">服务商预设</label>
+          <select id="provider-preset" name="providerId"></select>
+
+          <label for="profile-name">配置名称</label>
+          <input id="profile-name" name="name" type="text" maxlength="60"
+            placeholder="例如：Gemini Flash / 公司千问">
+
+          <label for="endpoint">API 地址</label>
+          <input id="endpoint" name="endpoint" type="url" required
+            placeholder="https://api.openai.com/v1（自动补全 /chat/completions）">
+          <p class="hint">支持直接填写 Base URL，保存时会自动补全 <code>/chat/completions</code>。仅允许 HTTPS（本机 localhost 可用 HTTP）。</p>
+
+          <label for="model">视觉模型名称</label>
+          <input id="model" name="model" type="text" list="model-suggestions" required
+            placeholder="从下拉选择推荐模型，或直接输入自定义模型名">
+          <datalist id="model-suggestions"></datalist>
+
+          <label for="api-key">API Key</label>
+          <input id="api-key" name="apiKey" type="password" autocomplete="off"
+            placeholder="输入 API Key">
+
+          <div class="button-row">
+            <button class="primary-button" type="submit">保存并启用</button>
+            <button id="save-only" class="secondary-button" type="button">仅保存</button>
+            <button id="clear-key" class="secondary-button" type="button" hidden>清除此配置 Key</button>
+            <button id="cancel-edit" class="secondary-button" type="button" hidden>取消编辑</button>
+          </div>
+        </form>
+      </section>
+
       <p id="settings-status" class="status" role="status" aria-live="polite"></p>
     </main>
+    <script src="api-profiles.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

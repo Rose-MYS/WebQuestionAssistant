@@ -23,7 +23,11 @@
             </div></div>
           </section>
           <div id="questions-list"></div>
-          <div class="button-row question-actions"><button id="add-question" hidden>新增题目</button><button id="recognize-again" hidden></button><button id="confirm-questions" hidden>Confirm</button></div>
+          <div class="button-row question-actions">
+            <button id="export-png" hidden>导出 PNG</button><button id="export-pdf" hidden>导出 PDF</button>
+            <button id="add-question" hidden>新增题目</button><button id="recognize-again" hidden></button>
+            <button id="confirm-questions" hidden>Confirm</button>
+          </div>
         </div>
       </div>
     </section>
@@ -48,6 +52,7 @@
       width: 100, height: 100, tiles: 2, instruction: "", questions: []
     };
     window.apiCalls = [];
+    window.exportCalls = [];
     window.mockReplies = [
       JSON.stringify({ questions: [
         { number: "2", bbox: [550, 550, 900, 900] },
@@ -58,6 +63,16 @@
     ];
     window.confirmCalls = [];
     window.confirmAnswers = [];
+    window.QuestionExporter = {
+      async exportMergedPng(questions) {
+        window.exportCalls.push({ format: "png", questions: structuredClone(questions) });
+        return { filename: "questions.png", count: questions.length };
+      },
+      async exportA4Pdf(questions) {
+        window.exportCalls.push({ format: "pdf", questions: structuredClone(questions) });
+        return { filename: "questions.pdf", count: questions.length, pages: 1 };
+      }
+    };
     window.confirm = (message) => {
       window.confirmCalls.push(message);
       return window.confirmAnswers.length ? window.confirmAnswers.shift() : true;
@@ -141,6 +156,29 @@
           [...document.querySelectorAll(".question-details")].some((details) => !details.hidden) ||
           document.querySelectorAll(".question-number-input").length !== 3) {
         throw new Error("question directory or default-collapsed cards were not rendered");
+      }
+      if (document.getElementById("export-png").hidden ||
+          document.getElementById("export-pdf").hidden) {
+        throw new Error("local export controls are not available during crop review");
+      }
+      const includeQuestions = [...document.querySelectorAll(".include-question")];
+      for (const checkbox of includeQuestions) {
+        checkbox.checked = false;
+      }
+      document.getElementById("export-pdf").click();
+      if (window.exportCalls.length !== 0 ||
+          !document.getElementById("result-status").textContent.includes("至少保留并勾选")) {
+        throw new Error("export accepted an empty question selection");
+      }
+      for (const checkbox of includeQuestions) {
+        checkbox.checked = true;
+      }
+      document.getElementById("export-pdf").click();
+      await waitFor(() => window.exportCalls.length === 1, "local PDF export");
+      if (window.exportCalls[0].format !== "pdf" ||
+          window.exportCalls[0].questions.length !== 3 ||
+          window.apiCalls.length !== 1) {
+        throw new Error("PDF export did not use the three reviewed crops locally");
       }
       document.querySelector('.question-directory-link[data-question-id="q1"]').click();
       if (document.querySelector('.question-card[data-question-id="q1"] .question-details').hidden) {
@@ -319,8 +357,18 @@
           displayMath.querySelector("menclose menclose")?.textContent !== "2") {
         throw new Error("display/nested boxed formula structure is incorrect");
       }
+      AnswerRenderer.render(mathTests, [
+        "| A | B |",
+        "| --- | --- |",
+        "| **x** | $y_1$ |"
+      ].join("\n"));
+      if (mathTests.querySelectorAll("table thead th").length !== 2 ||
+          mathTests.querySelector("table tbody strong")?.textContent !== "x" ||
+          !mathTests.querySelector("table tbody math")) {
+        throw new Error("Markdown tables with inline formatting and math did not render");
+      }
       document.body.dataset.testResult = "PASS";
-      document.body.dataset.testDetails = "question directory, collapse, confirmed deletion and renumbering; crop editing and post-solve add/recrop; results and MathML";
+      document.body.dataset.testDetails = "question directory, collapse, delete/renumber, crop editing, post-solve add/recrop, local export and Markdown/MathML";
       document.title = "PASS";
       document.getElementById("test-result").textContent = `通过：${document.body.dataset.testDetails}`;
     })().catch((error) => {

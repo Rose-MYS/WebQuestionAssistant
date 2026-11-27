@@ -3,6 +3,8 @@ const retryButton = document.getElementById("retry-answer");
 const cancelButton = document.getElementById("cancel-questions");
 const confirmButton = document.getElementById("confirm-questions");
 const addQuestionButton = document.getElementById("add-question");
+const exportPngButton = document.getElementById("export-png");
+const exportPdfButton = document.getElementById("export-pdf");
 const recognizeAgainButton = document.getElementById("recognize-again");
 const confirmationHint = document.getElementById("confirmation-hint");
 const questionsTitle = document.getElementById("questions-title");
@@ -16,7 +18,9 @@ const cropEditorStage = document.getElementById("crop-editor-stage");
 const cropEditorOverlay = document.getElementById("crop-editor-overlay");
 const cropEditorMode = document.getElementById("crop-editor-mode");
 const addQuestionModeButton = document.getElementById("add-question-mode");
-const resultId = new URLSearchParams(location.search).get("id");
+const searchParams = new URLSearchParams(location.search);
+const resultId = searchParams.get("id");
+const initialMode = searchParams.get("mode") || "";
 const MAX_QUESTIONS = 50;
 const MAX_CROP_PIXELS_MULTIPLIER = 8;
 const MIN_CROP_WIDTH = 24;
@@ -40,6 +44,11 @@ function updateControls() {
   cancelButton.hidden = !requestActive;
   cancelButton.disabled = !requestActive || activeController?.signal.aborted;
   const awaitingConfirmation = record?.status === "awaiting_confirmation";
+  const hasQuestions = Array.isArray(record?.questions) && record.questions.length > 0;
+  for (const button of [exportPngButton, exportPdfButton]) {
+    button.hidden = !hasQuestions && !awaitingConfirmation;
+    button.disabled = requestActive || !hasQuestions;
+  }
   addQuestionButton.hidden = !record?.confirmedAt || awaitingConfirmation;
   addQuestionButton.disabled = requestActive;
   confirmButton.hidden = !awaitingConfirmation;
@@ -207,6 +216,8 @@ function renderRecord() {
     retryButton.hidden = true;
     if (record.error) {
       setStatus(`重新识别未成功，保留了上次裁切：${record.error}`, true);
+    } else if (questions.length === 0) {
+      setStatus("未识别到题目，可在整页截图上手动框选，或尝试 AI 视觉重新识别。");
     } else {
       setStatus(`已切分出 ${questions.length} 道题目。可编辑裁切区域、增删题目并检查最终截图。`);
     }
@@ -262,15 +273,30 @@ function getEndpointPermission(endpoint) {
 }
 
 async function loadApiSettings(requestPermission) {
-  const saved = await chrome.storage.local.get(["endpoint", "model", "apiKey"]);
-  const endpoint = getEndpointPermission(
-    saved.endpoint || "https://api.deepseek.com/chat/completions"
-  );
-  const model = typeof saved.model === "string" ? saved.model.trim() : "";
+  let rawEndpoint = "https://api.deepseek.com/chat/completions";
+  let model = "";
+  let apiKey = "";
+  if (typeof ApiProfiles !== "undefined") {
+    const active = await ApiProfiles.getActiveProfile();
+    if (!active) {
+      throw new Error("尚未配置并启用视觉 API 档案，请先打开 API 设置。");
+    }
+    rawEndpoint = active.endpoint;
+    model = typeof active.model === "string" ? active.model.trim() : "";
+    apiKey = active.apiKey || "";
+  } else {
+    const saved = await chrome.storage.local.get(["endpoint", "model", "apiKey"]);
+    rawEndpoint = saved.endpoint || rawEndpoint;
+    model = typeof saved.model === "string" ? saved.model.trim() : "";
+    apiKey = saved.apiKey || "";
+  }
+  const endpoint = typeof ApiProfiles !== "undefined"
+    ? ApiProfiles.normalizeAndValidateEndpoint(rawEndpoint)
+    : getEndpointPermission(rawEndpoint);
   if (!model) {
     throw new Error("尚未设置明确支持视觉输入的模型名称，请先打开 API 设置。");
   }
-  if (!saved.apiKey) {
+  if (!apiKey) {
     throw new Error("尚未设置 API Key，请先打开 API 设置。");
   }
   let granted = await chrome.permissions.contains({
@@ -284,7 +310,7 @@ async function loadApiSettings(requestPermission) {
   if (!granted) {
     throw new Error("未授予 API 域名访问权限。请重试并允许访问后继续。");
   }
-  return { endpoint: endpoint.url, model, apiKey: saved.apiKey };
+  return { endpoint: endpoint.url, model, apiKey };
 }
 
 async function chatCompletion(api, content, signal) {
@@ -580,6 +606,16 @@ function setCropBoxStyle(box, crop) {
   box.style.height = `${crop.height / record.height * 100}%`;
 }
 
+function moveCropRect(original, deltaX, deltaY, imageWidth, imageHeight) {
+  const minWidth = Math.min(MIN_CROP_WIDTH, imageWidth);
+  const minHeight = Math.min(MIN_CROP_HEIGHT, imageHeight);
+  const width = Math.max(minWidth, Math.min(imageWidth, Math.round(original.width)));
+  const height = Math.max(minHeight, Math.min(imageHeight, Math.round(original.height)));
+  const x = Math.max(0, Math.min(imageWidth - width, Math.round(original.x + deltaX)));
+  const y = Math.max(0, Math.min(imageHeight - height, Math.round(original.y + deltaY)));
+  return { x, y, width, height };
+}
+
 function sortQuestionsByNumber() {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   record.questions.sort((left, right) => collator.compare(left.number, right.number));
@@ -682,6 +718,101 @@ async function deleteQuestion(questionId) {
   }
 }
 
+async function applyLocalDetections() {
+  await prepareCropEditorImage();
+  const detections = Array.isArray(record.localDetections) ? record.localDetections : [];
+  const questions = [];
+  const usedNumbers = new Set();
+  for (let index = 0; index < detections.length; index += 1) {
+    const region = detections[index];
+    const target = region.stemRect || region;
+    const crop = clampCropRect({
+      x: target.x - 8,
+      y: target.y - 8,
+      width: target.width + 16,
+      height: target.height + 16
+    }, record.width, record.height);
+    if (crop.width < MIN_CROP_WIDTH || crop.height < MIN_CROP_HEIGHT) {
+      continue;
+    }
+    let number = String(region.number || index + 1).trim().slice(0, 80);
+    if (!number || usedNumbers.has(number.toLocaleLowerCase())) {
+      number = String(questions.length + 1);
+      while (usedNumbers.has(number.toLocaleLowerCase())) {
+        number = String(Number(number) + 1);
+      }
+    }
+    usedNumbers.add(number.toLocaleLowerCase());
+    questions.push({
+      id: `local-${index + 1}`,
+      number,
+      imageData: createCropData(editorSourceImage, crop),
+      crop,
+      selected: true,
+      status: "awaiting_confirmation",
+      answer: "",
+      error: ""
+    });
+  }
+  await saveRecord({
+    status: "awaiting_confirmation",
+    questions,
+    mode: "local",
+    confirmedAt: 0,
+    activeQuestionId: "",
+    error: ""
+  });
+  if (questions.length === 0) {
+    setEditorAddMode(true);
+    const detectionFailure = record.localDetectionError
+      ? `自动检测失败：${record.localDetectionError}。`
+      : "未检测到题目块。";
+    setStatus(`${detectionFailure}已开启手动框选；本地检测不会调用 API。`);
+  } else {
+    setStatus(`已在本地检测出 ${questions.length} 道题目，可检查并导出 PNG / PDF（不会调用 API）。`);
+  }
+}
+
+function getSelectedQuestionsForExport() {
+  if (!Array.isArray(record?.questions) || record.questions.length === 0) {
+    return [];
+  }
+  if (record.status === "awaiting_confirmation") {
+    const checkedIds = new Set(
+      [...questionsList.querySelectorAll(".include-question:checked")]
+        .map((checkbox) => checkbox.dataset.questionId)
+    );
+    return record.questions.filter((question) => checkedIds.has(question.id));
+  }
+  return record.questions.filter((question) => question.selected !== false);
+}
+
+async function handleExport(format) {
+  if (requestActive || typeof QuestionExporter === "undefined") {
+    return;
+  }
+  if (activeGesture) {
+    setStatus("请先完成或取消当前裁切框操作，再导出。", true);
+    return;
+  }
+  const selected = getSelectedQuestionsForExport();
+  if (selected.length === 0) {
+    setStatus("请至少保留并勾选一道题目后再导出。", true);
+    return;
+  }
+  setStatus(format === "pdf" ? "正在本地打包 A4 PDF…" : "正在本地拼接合并 PNG…");
+  try {
+    const info = format === "pdf"
+      ? await QuestionExporter.exportA4Pdf(selected)
+      : await QuestionExporter.exportMergedPng(selected);
+    setStatus(format === "pdf"
+      ? `已导出 A4 PDF（共 ${info.count} 题，${info.pages} 页）：${info.filename}`
+      : `已导出合并 PNG（共 ${info.count} 题）：${info.filename}`);
+  } catch (error) {
+    setStatus(`导出失败：${error?.message || "未知错误。"}`, true);
+  }
+}
+
 function getResizedCrop(original, handle, deltaX, deltaY) {
   let left = original.x;
   let top = original.y;
@@ -735,11 +866,7 @@ function updateGesture(event) {
     return;
   }
   question.crop = activeGesture.type === "move"
-    ? clampCropRect({
-        ...activeGesture.originalCrop,
-        x: activeGesture.originalCrop.x + deltaX,
-        y: activeGesture.originalCrop.y + deltaY
-      }, record.width, record.height)
+    ? moveCropRect(activeGesture.originalCrop, deltaX, deltaY, record.width, record.height)
     : getResizedCrop(activeGesture.originalCrop, activeGesture.handle, deltaX, deltaY);
   const box = findQuestionBox(question.id);
   if (box) {
@@ -1301,6 +1428,8 @@ questionsList.addEventListener("click", async (event) => {
 
 confirmButton.addEventListener("click", handleConfirmation);
 addQuestionButton.addEventListener("click", startNewQuestionAdd);
+exportPngButton.addEventListener("click", () => handleExport("png"));
+exportPdfButton.addEventListener("click", () => handleExport("pdf"));
 recognizeAgainButton.addEventListener("click", startRecognition);
 retryButton.addEventListener("click", async () => {
   if (!record || requestActive) {
@@ -1367,7 +1496,11 @@ async function loadRecord() {
     }
     renderRecord();
     if (record.status === "captured") {
-      await startRecognition();
+      if (initialMode === "local" || record.mode === "local") {
+        await applyLocalDetections();
+      } else {
+        await startRecognition();
+      }
     }
   } catch (error) {
     setStatus(`无法读取本次结果：${error?.message || "本地存储错误。"}`, true);

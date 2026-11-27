@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Pending</title></head>
+<body>
+  <p id="test-result" role="status">Running export layout tests…</p>
+  <script src="exporter.js"></script>
+  <script>
+    try {
+      const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+      const items = [1, 2].map(() => ({ jpegBytes, imgWidth: 800, imgHeight: 1200 }));
+      const pages = QuestionExporter.layoutPdfPages(items);
+      if (pages.length !== 2 ||
+          pages.some((page) => page.items.length !== 1 ||
+            page.items[0].xPt < 36 || page.items[0].yPt < 36 ||
+            page.items[0].xPt + page.items[0].wPt > page.widthPt - 36 ||
+            page.items[0].yPt + page.items[0].hPt > page.heightPt - 36)) {
+        throw new Error("A4 layout did not paginate or respect printable margins");
+      }
+      const bytes = QuestionExporter.buildPdfFromJpegPages(pages);
+      const pdf = new TextDecoder().decode(bytes);
+      const xrefOffset = Number(pdf.match(/startxref\n(\d+)\n%%EOF/)[1]);
+      const pageCount = Number(pdf.match(/\/Type \/Pages \/Count (\d+)/)[1]);
+      const xrefMarker = new TextDecoder().decode(bytes.subarray(xrefOffset, xrefOffset + 4));
+      if (!pdf.startsWith("%PDF-1.4") || pageCount !== 2 ||
+          xrefMarker !== "xref" ||
+          !pdf.includes("/Subtype /Image") || !pdf.endsWith("%%EOF\n")) {
+        throw new Error(`invalid PDF structure: ${JSON.stringify({
+          header: pdf.slice(0, 8),
+          pageCount,
+          xrefOffset,
+          xrefMarker,
+          hasImage: pdf.includes("/Subtype /Image"),
+          endsCorrectly: pdf.endsWith("%%EOF\n")
+        })}`);
+      }
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "A4 pagination, image embedding and PDF cross-reference offsets";
+      document.title = "PASS";
+      document.getElementById("test-result").textContent = "PASS";
+    } catch (error) {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.getElementById("test-result").textContent = `FAIL: ${error.message}`;
+    }
+  </script>
+</body>
+</html>

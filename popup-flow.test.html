@@ -14,11 +14,14 @@
     <p id="status" role="status"></p>
   </main>
   <script>
-    window.testState = { createdTab: null, captureMessage: null, optionsOpened: false };
+    window.testState = { createdTabs: [], captureMessage: null, optionsOpened: false, workflowMode: "ai" };
     window.chrome = {
+      storage: {
+        local: { async get() { return { defaultWorkflowMode: window.testState.workflowMode }; } }
+      },
       tabs: {
         async query() { return [{ id: 12, windowId: 34 }]; },
-        async create(options) { window.testState.createdTab = options; }
+        async create(options) { window.testState.createdTabs.push(options); }
       },
       runtime: {
         async sendMessage(message) {
@@ -46,12 +49,21 @@
         throw new Error("popup must only expose capture and settings buttons");
       }
       document.getElementById("capture-page").click();
-      await waitFor(() => window.testState.createdTab !== null, "results tab opening");
+      await waitFor(() => window.testState.createdTabs.length === 1, "AI results tab opening");
       if (window.testState.captureMessage?.type !== "CAPTURE_FULL_PAGE" ||
-          window.testState.createdTab.url !==
+          window.testState.createdTabs[0].url !==
             "chrome-extension://test/results.html?id=captured-result" ||
-          window.testState.createdTab.active !== true) {
-        throw new Error("capture did not open the active results tab immediately");
+          window.testState.createdTabs[0].active !== true) {
+        throw new Error("AI capture did not open the active results tab immediately");
+      }
+      window.testState.workflowMode = "local";
+      await waitFor(() => !document.getElementById("capture-page").disabled,
+        "capture button re-enabled");
+      document.getElementById("capture-page").click();
+      await waitFor(() => window.testState.createdTabs.length === 2, "local results tab opening");
+      if (window.testState.createdTabs[1].url !==
+          "chrome-extension://test/results.html?id=captured-result&mode=local") {
+        throw new Error("local mode was not passed to the results tab");
       }
       document.getElementById("open-settings").click();
       if (!window.testState.optionsOpened) {
