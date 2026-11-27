@@ -116,7 +116,7 @@ async function runPageScript(tabId, documentId, pageUrl, func, args = []) {
     results = await chrome.scripting.executeScript({ target, func, args });
   } catch (error) {
     throw new Error(
-      `无法操作当前页面。Edge 内部页面、商店页面或受限页面不支持长截图。${error.message || ""}`
+      `无法操作当前页面。浏览器内部页面、扩展商店页面或受限页面不支持长截图。${error.message || ""}`
     );
   }
 
@@ -209,7 +209,7 @@ async function captureFullPage(tabId, windowId, task) {
 
   try {
     if (typeof OffscreenCanvas !== "function" || typeof createImageBitmap !== "function") {
-      throw new Error("当前 Edge 版本不支持长图拼接，请更新浏览器后重试。");
+      throw new Error("当前浏览器版本不支持长图拼接，请更新浏览器后重试。");
     }
     const [activeTab] = await chrome.tabs.query({ active: true, windowId });
     if (activeTab?.id !== tabId) {
@@ -224,7 +224,7 @@ async function captureFullPage(tabId, windowId, task) {
       });
     } catch (error) {
       throw new Error(
-        `无法操作当前页面。Edge 内部页面、商店页面或受限页面不支持长截图。${error.message || ""}`
+        `无法操作当前页面。浏览器内部页面、扩展商店页面或受限页面不支持长截图。${error.message || ""}`
       );
     }
     const injection = prepared?.[0];
