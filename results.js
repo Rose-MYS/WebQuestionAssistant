@@ -2,11 +2,14 @@ const statusElement = document.getElementById("result-status");
 const retryButton = document.getElementById("retry-answer");
 const cancelButton = document.getElementById("cancel-questions");
 const confirmButton = document.getElementById("confirm-questions");
+const addQuestionButton = document.getElementById("add-question");
 const recognizeAgainButton = document.getElementById("recognize-again");
 const confirmationHint = document.getElementById("confirmation-hint");
 const questionsTitle = document.getElementById("questions-title");
 const questionsSection = document.getElementById("questions-section");
 const questionsList = document.getElementById("questions-list");
+const questionDirectory = document.getElementById("question-directory");
+const questionDirectoryList = document.getElementById("question-directory-list");
 const cropEditorPanel = document.getElementById("crop-editor-panel");
 const cropEditorImage = document.getElementById("crop-editor-image");
 const cropEditorStage = document.getElementById("crop-editor-stage");
@@ -25,6 +28,8 @@ let editorSourceImage;
 let activeGesture;
 let addQuestionMode = false;
 let activeQuestionId = "";
+let recropQuestionId = "";
+const expandedQuestionIds = new Set();
 
 function setStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -35,11 +40,14 @@ function updateControls() {
   cancelButton.hidden = !requestActive;
   cancelButton.disabled = !requestActive || activeController?.signal.aborted;
   const awaitingConfirmation = record?.status === "awaiting_confirmation";
+  addQuestionButton.hidden = !record?.confirmedAt || awaitingConfirmation;
+  addQuestionButton.disabled = requestActive;
   confirmButton.hidden = !awaitingConfirmation;
   confirmButton.disabled = requestActive;
   recognizeAgainButton.hidden = !awaitingConfirmation;
   recognizeAgainButton.disabled = requestActive;
-  addQuestionModeButton.disabled = requestActive || !awaitingConfirmation;
+  addQuestionModeButton.disabled = requestActive ||
+    (!awaitingConfirmation && !recropQuestionId && !addQuestionMode);
   retryButton.disabled = requestActive;
 }
 
@@ -58,6 +66,7 @@ function createQuestionCard(question, index) {
   const card = document.createElement("article");
   card.className = "question-card";
   card.dataset.questionId = question.id;
+  card.id = `question-card-${question.id}`;
 
   const heading = document.createElement("div");
   heading.className = "question-heading";
@@ -66,15 +75,34 @@ function createQuestionCard(question, index) {
   const badge = document.createElement("span");
   badge.className = `question-status status-${question.status}`;
   badge.textContent = questionStatusLabel(question.status);
-  heading.append(title, badge);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "question-toggle";
+  toggle.dataset.questionId = question.id;
+  toggle.setAttribute("aria-controls", `question-details-${question.id}`);
+  toggle.setAttribute("aria-expanded", String(expandedQuestionIds.has(question.id)));
+  toggle.textContent = expandedQuestionIds.has(question.id) ? "收起" : "展开";
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "question-delete";
+  removeButton.dataset.questionId = question.id;
+  removeButton.textContent = "删除";
+  removeButton.setAttribute("aria-label", `删除第 ${question.number || index + 1} 题`);
+  removeButton.disabled = requestActive;
+  heading.append(title, badge, toggle, removeButton);
   card.append(heading);
+
+  const details = document.createElement("div");
+  details.className = "question-details";
+  details.id = `question-details-${question.id}`;
+  details.hidden = !expandedQuestionIds.has(question.id);
 
   const crop = document.createElement("img");
   crop.className = "question-crop";
   crop.dataset.questionPreview = question.id;
   crop.src = question.imageData;
   crop.alt = `第 ${question.number || index + 1} 题的独立截图裁切`;
-  card.append(crop);
+  details.append(crop);
 
   if (record.status === "awaiting_confirmation") {
     const editorActions = document.createElement("div");
@@ -90,14 +118,6 @@ function createQuestionCard(question, index) {
     numberInput.setAttribute("aria-label", `第 ${index + 1} 题的题号`);
     numberInput.disabled = requestActive;
     numberLabel.append(numberInput);
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "secondary-button remove-question";
-    removeButton.dataset.questionId = question.id;
-    removeButton.textContent = "删除此题";
-    removeButton.disabled = requestActive;
-    editorActions.append(numberLabel, removeButton);
-
     const selection = document.createElement("label");
     selection.className = "question-selection";
     const checkbox = document.createElement("input");
@@ -107,8 +127,16 @@ function createQuestionCard(question, index) {
     checkbox.checked = question.selected !== false;
     checkbox.disabled = requestActive;
     selection.append(checkbox, document.createTextNode(" 纳入本次解答"));
-    editorActions.append(selection);
-    card.append(editorActions);
+    editorActions.append(numberLabel, selection);
+    details.append(editorActions);
+  } else if (record.confirmedAt) {
+    const recropButton = document.createElement("button");
+    recropButton.type = "button";
+    recropButton.className = "secondary-button recrop-question";
+    recropButton.dataset.questionId = question.id;
+    recropButton.textContent = "重新框选并重新解答";
+    recropButton.disabled = requestActive;
+    details.append(recropButton);
   }
 
   if (question.answer) {
@@ -117,12 +145,12 @@ function createQuestionCard(question, index) {
     const answer = document.createElement("div");
     answer.className = "answer-content";
     AnswerRenderer.render(answer, question.answer);
-    card.append(answerHeading, answer);
+    details.append(answerHeading, answer);
   } else if (question.error) {
     const error = document.createElement("p");
     error.className = "question-error";
     error.textContent = question.error;
-    card.append(error);
+    details.append(error);
   }
 
   if (question.status === "error" || question.status === "cancelled") {
@@ -132,22 +160,39 @@ function createQuestionCard(question, index) {
     retry.dataset.questionId = question.id;
     retry.textContent = "重试本题";
     retry.disabled = requestActive;
-    card.append(retry);
+    details.append(retry);
   }
+  card.append(details);
   return card;
+}
+
+function renderQuestionDirectory(questions) {
+  questionDirectory.hidden = questions.length === 0;
+  questionDirectoryList.replaceChildren(...questions.map((question, index) => {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "question-directory-link";
+    link.dataset.questionId = question.id;
+    link.textContent = `第 ${question.number || index + 1} 题`;
+    link.setAttribute("aria-label", `跳转到第 ${question.number || index + 1} 题`);
+    return link;
+  }));
 }
 
 function renderRecord() {
   if (!record) {
     return;
   }
-  cropEditorPanel.hidden = record.status !== "awaiting_confirmation";
+  cropEditorPanel.hidden = record.status !== "awaiting_confirmation" &&
+    !recropQuestionId && !addQuestionMode;
   if (cropEditorImage.src !== record.imageData) {
     cropEditorImage.src = record.imageData;
   }
 
   const questions = Array.isArray(record.questions) ? record.questions : [];
-  questionsSection.hidden = questions.length === 0 && record.status !== "awaiting_confirmation";
+  questionsSection.hidden = questions.length === 0 &&
+    record.status !== "awaiting_confirmation" && !record.confirmedAt;
+  renderQuestionDirectory(questions);
   questionsList.replaceChildren(...questions.map(createQuestionCard));
   renderCropEditorBoxes();
   const completeCount = questions.filter((question) => question.status === "complete").length;
@@ -496,7 +541,7 @@ async function cropQuestion(sourceImage, segment, index) {
 function renderCropEditorBoxes() {
   cropEditorOverlay.replaceChildren();
   cropEditorOverlay.classList.toggle("is-drawing", addQuestionMode);
-  if (!record || record.status !== "awaiting_confirmation") {
+  if (!record || record.status !== "awaiting_confirmation" || recropQuestionId) {
     return;
   }
 
@@ -561,14 +606,80 @@ function findQuestionBox(questionId) {
     .find((box) => box.dataset.questionId === questionId);
 }
 
-function setEditorAddMode(enabled) {
+function setEditorAddMode(enabled, replaceQuestionId = "") {
   addQuestionMode = enabled;
-  addQuestionModeButton.textContent = enabled ? "取消新增框选" : "框选新增题目";
+  recropQuestionId = enabled ? replaceQuestionId : "";
+  addQuestionModeButton.textContent = !enabled
+    ? "框选新增题目"
+    : replaceQuestionId
+      ? "取消重新框选"
+      : "取消新增框选";
   cropEditorMode.hidden = !enabled;
-  cropEditorMode.textContent = enabled
-    ? "新增模式：在长图空白处按住并拖动，框出完整题目区域。"
-    : "";
+  cropEditorMode.textContent = !enabled
+    ? ""
+    : replaceQuestionId
+      ? "重新框选模式：在长图上拖动，框出该题完整区域；完成后将自动重新解答。"
+      : "新增模式：在长图空白处按住并拖动，框出完整题目区域。";
   cropEditorOverlay.classList.toggle("is-drawing", enabled);
+}
+
+async function startQuestionRecrop(questionId) {
+  if (!record || requestActive) {
+    return;
+  }
+  const question = record.questions.find((item) => item.id === questionId);
+  if (!question) {
+    setStatus("找不到要重新框选的题目，请刷新结果页后重试。", true);
+    return;
+  }
+  try {
+    await prepareCropEditorImage();
+    activeQuestionId = questionId;
+    expandedQuestionIds.add(questionId);
+    setEditorAddMode(true, questionId);
+    renderRecord();
+    cropEditorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    setStatus(`请在整页截图上重新框选第 ${question.number} 题。`);
+  } catch (error) {
+    setStatus(`无法加载原始长图：${error?.message || "请重新截取页面。"}`, true);
+  }
+}
+
+async function startNewQuestionAdd() {
+  if (!record?.confirmedAt || requestActive) {
+    return;
+  }
+  try {
+    await prepareCropEditorImage();
+    setEditorAddMode(true);
+    renderRecord();
+    cropEditorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    setStatus("请在整页截图上框选要新增的题目。");
+  } catch (error) {
+    setStatus(`无法加载原始长图：${error?.message || "请重新截取页面。"}`, true);
+  }
+}
+
+async function deleteQuestion(questionId) {
+  if (requestActive) {
+    return;
+  }
+  const question = record?.questions.find((item) => item.id === questionId);
+  if (!question || !window.confirm(`确定删除第 ${question.number} 题吗？删除后将重新编排题号。`)) {
+    return;
+  }
+  const questions = record.questions
+    .filter((item) => item.id !== questionId)
+    .map((item, index) => ({ ...item, number: String(index + 1) }));
+  if (activeQuestionId === questionId) {
+    activeQuestionId = "";
+  }
+  expandedQuestionIds.delete(questionId);
+  try {
+    await saveRecord({ questions });
+  } catch (error) {
+    setStatus(`无法删除题目：${error?.message || "本地存储失败。"}`, true);
+  }
 }
 
 function getResizedCrop(original, handle, deltaX, deltaY) {
@@ -663,8 +774,72 @@ async function finishGesture(event, cancelled = false) {
       setStatus("新增区域太小或已取消；请拖出包含完整题目的矩形。", cancelled);
       return;
     }
-    if (record.questions.length >= MAX_QUESTIONS) {
+    if (!recropQuestionId && record.questions.length >= MAX_QUESTIONS) {
       setStatus(`最多支持 ${MAX_QUESTIONS} 道题目，请先删除不需要的题目。`, true);
+      return;
+    }
+    if (recropQuestionId) {
+      const questionId = recropQuestionId;
+      const question = record.questions.find((item) => item.id === questionId);
+      if (!question) {
+        setEditorAddMode(false);
+        renderRecord();
+        setStatus("找不到要更新的题目，请重新选择后再试。", true);
+        return;
+      }
+      try {
+        const crop = clampCropRect(gesture.crop, record.width, record.height);
+        const updatedQuestion = {
+          ...question,
+          crop,
+          imageData: createCropData(editorSourceImage, crop),
+          status: "pending",
+          answer: "",
+          error: ""
+        };
+        const questions = record.questions.map((item) =>
+          item.id === questionId ? updatedQuestion : item
+        );
+        setEditorAddMode(false);
+        await saveRecord({
+          status: "solving",
+          questions,
+          error: "",
+          activeQuestionId: questionId
+        });
+        await startSolving([questionId], false);
+      } catch (error) {
+        setEditorAddMode(false);
+        renderRecord();
+        setStatus(`无法更新并重新解答第 ${question.number} 题：${error?.message || "裁切失败。"}`, true);
+      }
+      return;
+    }
+    if (record.confirmedAt && record.status !== "awaiting_confirmation") {
+      const crop = clampCropRect(gesture.crop, record.width, record.height);
+      const question = {
+        id: `manual-${crypto.randomUUID()}`,
+        number: nextQuestionNumber(),
+        imageData: createCropData(editorSourceImage, crop),
+        crop,
+        selected: true,
+        status: "pending",
+        answer: "",
+        error: ""
+      };
+      setEditorAddMode(false);
+      try {
+        await saveRecord({
+          status: "solving",
+          questions: [...record.questions, question],
+          error: "",
+          activeQuestionId: question.id
+        });
+        await startSolving([question.id], false);
+      } catch (error) {
+        renderRecord();
+        setStatus(`无法添加并解答新题目：${error?.message || "保存失败。"}`, true);
+      }
       return;
     }
     try {
@@ -712,7 +887,9 @@ async function finishGesture(event, cancelled = false) {
 }
 
 cropEditorOverlay.addEventListener("pointerdown", (event) => {
-  if (requestActive || record?.status !== "awaiting_confirmation" || event.button !== 0) {
+  if (requestActive ||
+      (record?.status !== "awaiting_confirmation" && !addQuestionMode) ||
+      event.button !== 0) {
     return;
   }
   const stageRect = cropEditorStage.getBoundingClientRect();
@@ -771,8 +948,13 @@ cropEditorOverlay.addEventListener("pointercancel", (event) => finishGesture(eve
 cropEditorOverlay.addEventListener("lostpointercapture", (event) => finishGesture(event, true));
 
 addQuestionModeButton.addEventListener("click", () => {
-  if (record?.status === "awaiting_confirmation") {
-    setEditorAddMode(!addQuestionMode);
+  if (record?.status === "awaiting_confirmation" || recropQuestionId || addQuestionMode) {
+    if (addQuestionMode) {
+      setEditorAddMode(false);
+      renderRecord();
+    } else {
+      setEditorAddMode(true, recropQuestionId);
+    }
   }
 });
 
@@ -932,6 +1114,12 @@ async function runActiveTask(task) {
         activeQuestionId: ""
       };
     } else if (record.status === "solving") {
+      for (const question of record.questions || []) {
+        if (question.status === "pending") {
+          question.status = "error";
+          question.error = message;
+        }
+      }
       changes = {
         status: "error",
         error: message,
@@ -1029,6 +1217,17 @@ async function handleConfirmation() {
   await startSolving(selectedIds, true);
 }
 
+questionDirectoryList.addEventListener("click", (event) => {
+  const button = event.target.closest(".question-directory-link");
+  if (!button) {
+    return;
+  }
+  expandedQuestionIds.add(button.dataset.questionId);
+  renderRecord();
+  const card = document.getElementById(`question-card-${button.dataset.questionId}`);
+  card?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 questionsList.addEventListener("change", (event) => {
   if (!record || record.status !== "awaiting_confirmation") {
     return;
@@ -1066,24 +1265,31 @@ questionsList.addEventListener("change", (event) => {
 });
 
 questionsList.addEventListener("click", async (event) => {
+  const toggle = event.target.closest(".question-toggle");
+  if (toggle) {
+    const questionId = toggle.dataset.questionId;
+    if (expandedQuestionIds.has(questionId)) {
+      expandedQuestionIds.delete(questionId);
+    } else {
+      expandedQuestionIds.add(questionId);
+    }
+    renderRecord();
+    return;
+  }
   const card = event.target.closest(".question-card");
   if (card && record?.status === "awaiting_confirmation" &&
-      !event.target.closest(".remove-question")) {
+      !event.target.closest(".question-delete")) {
     activeQuestionId = card.dataset.questionId;
     renderCropEditorBoxes();
   }
-  const removeButton = event.target.closest(".remove-question");
-  if (removeButton && !requestActive && record?.status === "awaiting_confirmation") {
-    const questionId = removeButton.dataset.questionId;
-    record.questions = record.questions.filter((question) => question.id !== questionId);
-    if (activeQuestionId === questionId) {
-      activeQuestionId = "";
-    }
-    try {
-      await saveRecord({ questions: record.questions });
-    } catch (error) {
-      setStatus(`无法删除题目：${error?.message || "本地存储失败。"}`, true);
-    }
+  const deleteButton = event.target.closest(".question-delete");
+  if (deleteButton) {
+    await deleteQuestion(deleteButton.dataset.questionId);
+    return;
+  }
+  const recropButton = event.target.closest(".recrop-question");
+  if (recropButton && !requestActive) {
+    await startQuestionRecrop(recropButton.dataset.questionId);
     return;
   }
   const button = event.target.closest(".retry-question");
@@ -1094,6 +1300,7 @@ questionsList.addEventListener("click", async (event) => {
 });
 
 confirmButton.addEventListener("click", handleConfirmation);
+addQuestionButton.addEventListener("click", startNewQuestionAdd);
 recognizeAgainButton.addEventListener("click", startRecognition);
 retryButton.addEventListener("click", async () => {
   if (!record || requestActive) {

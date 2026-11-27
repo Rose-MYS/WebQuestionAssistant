@@ -74,6 +74,54 @@ main {
   margin-top: 4px;
 }
 
+.questions-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.questions-content {
+  min-width: 0;
+}
+
+.question-directory {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f6f8fa;
+}
+
+.question-directory h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.question-directory-list {
+  display: grid;
+  gap: 4px;
+}
+
+.question-directory-link {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-color: transparent;
+  text-align: left;
+  background: transparent;
+}
+
+.question-directory-link:hover,
+.question-directory-link:focus-visible {
+  color: #0969da;
+  border-color: #d0d7de;
+  background: #fff;
+}
+
 .results-actions {
   display: flex;
   gap: 8px;
@@ -124,6 +172,12 @@ textarea {
 
 .popup textarea {
   min-height: 64px;
+}
+
+.capture-primary {
+  min-height: 54px;
+  margin-top: 20px;
+  font-size: 16px;
 }
 
 .screenshot-figure {
@@ -322,7 +376,6 @@ button:disabled {
 .question-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 
@@ -338,6 +391,32 @@ button:disabled {
   background: #f6f8fa;
   color: #57606a;
   font-size: 12px;
+}
+
+.question-toggle {
+  min-width: 52px;
+  margin-left: auto;
+  padding: 4px 8px;
+  color: #0969da;
+  border-color: #d0d7de;
+  background: #fff;
+}
+
+.question-delete {
+  min-width: 52px;
+  padding: 4px 8px;
+  color: #cf222e;
+  border-color: #d0d7de;
+  background: #fff;
+}
+
+.question-delete:hover:not(:disabled) {
+  border-color: #cf222e;
+  background: #fff1f0;
+}
+
+.question-details[hidden] {
+  display: none;
 }
 
 .status-awaiting_confirmation {
@@ -558,6 +637,20 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  .questions-layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .question-directory {
+    position: static;
+    max-height: 160px;
+  }
+
+  .question-directory-list {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+
   .crop-editor-panel {
     padding: 8px;
   }

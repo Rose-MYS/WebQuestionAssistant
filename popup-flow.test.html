@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>网页题目助手弹窗流程测试</title>
+</head>
+<body>
+  <main>
+    <header>
+      <button id="open-settings" type="button">设置</button>
+    </header>
+    <button id="capture-page" type="button">截取网页长图</button>
+    <p id="status" role="status"></p>
+  </main>
+  <script>
+    window.testState = { createdTab: null, captureMessage: null, optionsOpened: false };
+    window.chrome = {
+      tabs: {
+        async query() { return [{ id: 12, windowId: 34 }]; },
+        async create(options) { window.testState.createdTab = options; }
+      },
+      runtime: {
+        async sendMessage(message) {
+          window.testState.captureMessage = message;
+          return { ok: true, resultId: "captured-result" };
+        },
+        getURL(path) { return `chrome-extension://test/${path}`; },
+        onMessage: { addListener() {} },
+        openOptionsPage() { window.testState.optionsOpened = true; }
+      }
+    };
+  </script>
+  <script src="popup.js"></script>
+  <script>
+    async function waitFor(test, label) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (test()) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error(`Timed out: ${label}`);
+    }
+
+    (async () => {
+      if (document.querySelectorAll("main button").length !== 2) {
+        throw new Error("popup must only expose capture and settings buttons");
+      }
+      document.getElementById("capture-page").click();
+      await waitFor(() => window.testState.createdTab !== null, "results tab opening");
+      if (window.testState.captureMessage?.type !== "CAPTURE_FULL_PAGE" ||
+          window.testState.createdTab.url !==
+            "chrome-extension://test/results.html?id=captured-result" ||
+          window.testState.createdTab.active !== true) {
+        throw new Error("capture did not open the active results tab immediately");
+      }
+      document.getElementById("open-settings").click();
+      if (!window.testState.optionsOpened) {
+        throw new Error("settings button did not open extension settings");
+      }
+      document.body.dataset.testResult = "PASS";
+      document.body.dataset.testDetails = "capture opens active results tab; popup exposes only capture and settings";
+      document.title = "PASS";
+      document.body.insertAdjacentText("beforeend", " PASS");
+    })().catch((error) => {
+      document.body.dataset.testResult = "FAIL";
+      document.body.dataset.testDetails = error.stack || error.message;
+      document.title = "FAIL";
+      document.body.insertAdjacentText("beforeend", ` FAIL: ${error.message}`);
+    });
+  </script>
+</body>
+</html>
